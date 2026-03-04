@@ -1,0 +1,1103 @@
+"use client"
+
+import { useAuth } from "@/lib/auth-context"
+import { useEffect, useState } from "react"
+import DashboardLayout from "@/components/dashboard-layout"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Badge } from "@/components/ui/badge"
+import {
+  Plus,
+  Edit2,
+  Trash2,
+  Calendar,
+  Clock,
+  CheckCircle,
+  Filter,
+  Search,
+  Save,
+  X,
+  Eye,
+  Building2,
+  MessageSquare,
+  FileText,
+  Table2,
+  Columns,
+  Download,
+  Shield,
+  CreditCard,
+  BarChart3,
+  Settings,
+  Database,
+  DollarSign,
+  UserCheck,
+  TrendingUp,
+} from "lucide-react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { exportIssues } from "@/lib/csv-export"
+
+interface ProjectStatus {
+  id: string
+  company_id: string
+  insurer_id: string
+  title: string
+  description: string
+  issue_category: string
+  sub_category: string
+  status: string
+  priority: string
+  resolution_type: string
+  raised_by_name: string
+  assigned_to_name: string
+  pending_with_name: string
+  raised_by_id: string
+  assigned_to_id: string
+  pending_with_id: string
+  due_date: string
+  raised_date: string
+  resolved_at: string
+  created_at: string
+  updated_at: string
+  followup_notes: string
+  company_name: string
+  insurer_name: string
+  insurer_short_name: string
+  product_display_name: string
+  sub_product_display_name: string
+  raised_by_user_name: string
+  assigned_to_user_name: string
+  pending_with_user_name: string
+}
+
+interface Company {
+  id: string
+  name: string
+}
+
+interface Insurer {
+  id: string
+  name: string
+  short_name: string
+}
+
+interface User {
+  id: string
+  name: string
+  email: string
+  role_type: string
+}
+
+export default function ProjectStatusPage() {
+  const { user, hasPermission } = useAuth()
+  const [statusItems, setStatusItems] = useState<ProjectStatus[]>([])
+  const [filteredItems, setFilteredItems] = useState<ProjectStatus[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [insurers, setInsurers] = useState<Insurer[]>([])
+  const [users, setUsers] = useState<User[]>([])
+
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  // Filter states
+  const [statusFilter, setStatusFilter] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState("")
+  const [priorityFilter, setPriorityFilter] = useState("")
+  const [companyFilter, setCompanyFilter] = useState("")
+  const [insurerFilter, setInsurerFilter] = useState("")
+  const [searchTerm, setSearchTerm] = useState("")
+
+  // Modal states
+  const [showModal, setShowModal] = useState(false)
+  const [showDetailModal, setShowDetailModal] = useState(false)
+  const [editingItem, setEditingItem] = useState<ProjectStatus | null>(null)
+  const [viewingItem, setViewingItem] = useState<ProjectStatus | null>(null)
+  const [formData, setFormData] = useState<any>({})
+
+  // View mode state
+  const [viewMode, setViewMode] = useState<"table" | "card">("table")
+
+  useEffect(() => {
+    if (user && hasPermission("issues")) {
+      fetchAllData()
+    }
+  }, [user])
+
+  useEffect(() => {
+    filterItems()
+  }, [statusItems, statusFilter, categoryFilter, priorityFilter, companyFilter, insurerFilter, searchTerm])
+
+  const fetchAllData = async () => {
+    try {
+      setError("")
+
+      // Fetch all data in parallel
+      const [statusRes, companiesRes, insurersRes, usersRes] = await Promise.all([
+        fetch("/api/issues"),
+        fetch("/api/companies"),
+        fetch("/api/master-data/insurers"),
+        fetch("/api/users"),
+      ])
+
+      const [statusData, companiesData, insurersData, usersData] = await Promise.all([
+        statusRes.json(),
+        companiesRes.json(),
+        insurersRes.json(),
+        usersRes.json(),
+      ])
+
+      setStatusItems(Array.isArray(statusData) ? statusData : [])
+      setCompanies(Array.isArray(companiesData) ? companiesData : [])
+      setInsurers(Array.isArray(insurersData) ? insurersData : [])
+      setUsers(Array.isArray(usersData) ? usersData : [])
+    } catch (error) {
+      console.error("Error fetching data:", error)
+      setError("Failed to load project status data.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const filterItems = () => {
+    let filtered = [...statusItems]
+
+    if (statusFilter) {
+      filtered = filtered.filter((i) => i.status === statusFilter)
+    }
+
+    if (categoryFilter) {
+      filtered = filtered.filter((i) => i.issue_category === categoryFilter)
+    }
+
+    if (priorityFilter) {
+      filtered = filtered.filter((i) => i.priority === priorityFilter)
+    }
+
+    if (companyFilter) {
+      filtered = filtered.filter((i) => i.company_id === companyFilter)
+    }
+
+    if (insurerFilter) {
+      filtered = filtered.filter((i) => i.insurer_id === insurerFilter)
+    }
+
+    if (searchTerm) {
+      filtered = filtered.filter(
+        (i) =>
+          i.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          i.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          i.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          i.insurer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          i.assigned_to_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          i.pending_with_name?.toLowerCase().includes(searchTerm.toLowerCase()),
+      )
+    }
+
+    setFilteredItems(filtered)
+  }
+
+  const openModal = (item: ProjectStatus | null = null) => {
+    setEditingItem(item)
+    setShowModal(true)
+
+    if (item) {
+      setFormData({ ...item })
+    } else {
+      setFormData({
+        company_id: user?.role === "Customer" ? user.companyId : "",
+        insurer_id: "",
+        title: "",
+        description: "",
+        issue_category: "Insurer Integration",
+        sub_category: "",
+        status: "Raised",
+        priority: "Medium",
+        assigned_to_id: "",
+        assigned_to_name: "",
+        pending_with_id: "",
+        pending_with_name: "",
+        due_date: "",
+        resolution_type: "",
+        followup_notes: "",
+        raised_date: new Date().toISOString().split("T")[0],
+      })
+    }
+  }
+
+  const openDetailModal = (item: ProjectStatus) => {
+    setViewingItem(item)
+    setShowDetailModal(true)
+  }
+
+  const handleSave = async () => {
+    try {
+      const method = editingItem ? "PUT" : "POST"
+
+      // Set names based on selected IDs
+      const selectedAssignedUser = users.find((u) => u.id === formData.assigned_to_id)
+      const selectedPendingUser = users.find((u) => u.id === formData.pending_with_id)
+
+      if (selectedAssignedUser) {
+        formData.assigned_to_name = selectedAssignedUser.name
+      }
+      if (selectedPendingUser) {
+        formData.pending_with_name = selectedPendingUser.name
+      }
+
+      const response = await fetch("/api/issues", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      })
+
+      if (response.ok) {
+        setShowModal(false)
+        fetchAllData()
+      } else {
+        const errorText = await response.text()
+        alert(`Error saving: ${errorText}`)
+      }
+    } catch (error) {
+      console.error("Error saving:", error)
+      alert("Error saving project status")
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this project status item?")) return
+
+    try {
+      const response = await fetch(`/api/issues?id=${id}`, {
+        method: "DELETE",
+      })
+
+      if (response.ok) {
+        fetchAllData()
+      } else {
+        const errorText = await response.text()
+        alert(`Error deleting: ${errorText}`)
+      }
+    } catch (error) {
+      console.error("Error deleting:", error)
+      alert("Error deleting project status")
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    const colors = {
+      Raised: "bg-blue-100 text-blue-800",
+      "In Progress": "bg-yellow-100 text-yellow-800",
+      Resolved: "bg-green-100 text-green-800",
+      Blocked: "bg-red-100 text-red-800",
+      Escalated: "bg-purple-100 text-purple-800",
+    }
+    return colors[status as keyof typeof colors] || "bg-gray-100 text-gray-800"
+  }
+
+  const getPriorityColor = (priority: string) => {
+    const colors = {
+      High: "bg-red-100 text-red-800",
+      Medium: "bg-yellow-100 text-yellow-800",
+      Low: "bg-green-100 text-green-800",
+    }
+    return colors[priority as keyof typeof colors] || "bg-gray-100 text-gray-800"
+  }
+
+  const getCategoryIcon = (category: string) => {
+    const icons = {
+      "Insurer Integration": Building2,
+      Onboarding: UserCheck,
+      MIS: BarChart3,
+      Commissions: DollarSign,
+      "Sales Journey": TrendingUp,
+      CKYC: Shield,
+      Reports: FileText,
+      SSO: Settings,
+      Dashboard: Database,
+      Reconciliation: CheckCircle,
+      Payments: CreditCard,
+    }
+    return icons[category as keyof typeof icons] || MessageSquare
+  }
+
+  const handleDownloadCSV = () => {
+    if (filteredItems.length === 0) {
+      alert("No data to export")
+      return
+    }
+
+    exportIssues(filteredItems)
+  }
+
+  if (!hasPermission("issues")) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 flex items-center justify-center">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h1>
+            <p className="text-gray-600">You don't have permission to view project status.</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 flex items-center justify-center">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-red-600 mb-2">Error Loading Project Status</h1>
+            <p className="text-gray-600 mb-4">{error}</p>
+            <Button onClick={fetchAllData}>Retry</Button>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const statuses = ["Raised", "In Progress", "Blocked", "Resolved", "Escalated"]
+  const priorities = ["High", "Medium", "Low"]
+  const categories = [
+    "Insurer Integration",
+    "Onboarding",
+    "MIS",
+    "Commissions",
+    "Sales Journey",
+    "CKYC",
+    "Reports",
+    "SSO",
+    "Dashboard",
+    "Reconciliation",
+    "Payments",
+  ]
+  const subCategories = [
+    "2w",
+    "4w",
+    "CV",
+    "Health",
+    "Life",
+    "Others",
+    "New Reports",
+    "Report Generation Issues",
+    "Commission Mismatch",
+    "Commission Rule Issue",
+    "Access Not working",
+    "POSP Onboarding",
+    "SSO Failed",
+    "SSO required",
+    "New Payment Method",
+    "PG Not working",
+  ]
+
+  const TableView = () => (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Title</TableHead>
+            <TableHead>Client</TableHead>
+            <TableHead>Insurer</TableHead>
+            <TableHead>Category → Sub Category</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Priority</TableHead>
+            <TableHead>Pending With</TableHead>
+            <TableHead>Due Date</TableHead>
+            <TableHead>Raised Date</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {filteredItems.map((item) => {
+            const CategoryIcon = getCategoryIcon(item.issue_category)
+            return (
+              <TableRow key={item.id}>
+                <TableCell className="font-medium">
+                  <div className="flex items-center">
+                    <CategoryIcon className="w-4 h-4 mr-2 text-gray-500" />
+                    {item.title}
+                  </div>
+                </TableCell>
+                <TableCell>{item.company_name}</TableCell>
+                <TableCell>{item.insurer_short_name || item.insurer_name || "N/A"}</TableCell>
+                <TableCell>
+                  <div className="text-sm">
+                    <div className="font-medium">{item.issue_category}</div>
+                    {item.sub_category && <div className="text-gray-500">→ {item.sub_category}</div>}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge className={getStatusColor(item.status)}>{item.status}</Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge className={getPriorityColor(item.priority)}>{item.priority}</Badge>
+                </TableCell>
+                <TableCell>{item.pending_with_name || "N/A"}</TableCell>
+                <TableCell>{item.due_date ? new Date(item.due_date).toLocaleDateString() : "N/A"}</TableCell>
+                <TableCell>{item.raised_date ? new Date(item.raised_date).toLocaleDateString() : "N/A"}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-2">
+                    <Button size="icon" variant="ghost" onClick={() => openDetailModal(item)}>
+                      <Eye className="w-4 h-4" />
+                    </Button>
+                    {["Admin", "Ensuredit", "Ensuredit Client Lead", "Customer"].includes(user?.role || "") && (
+                      <Button size="icon" variant="ghost" onClick={() => openModal(item)}>
+                        <Edit2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                    {user?.role === "Admin" && (
+                      <Button size="icon" variant="ghost" onClick={() => handleDelete(item.id)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  )
+
+  const CardView = () => (
+    <div className="space-y-4">
+      {filteredItems.map((item) => {
+        const CategoryIcon = getCategoryIcon(item.issue_category)
+        return (
+          <div
+            key={item.id}
+            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+          >
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex-1">
+                <div className="flex items-center mb-2">
+                  <CategoryIcon className="w-5 h-5 text-gray-500 mr-2" />
+                  <h3 className="text-lg font-semibold text-gray-900">{item.title}</h3>
+                </div>
+                <p className="text-sm text-gray-600 mb-2 line-clamp-2">{item.description}</p>
+                <div className="flex items-center text-xs text-gray-500 space-x-4">
+                  <span>{item.company_name}</span>
+                  {item.insurer_name && <span>• {item.insurer_name}</span>}
+                  <span>• {item.issue_category}</span>
+                  {item.sub_category && <span>→ {item.sub_category}</span>}
+                </div>
+              </div>
+              <div className="flex space-x-1 ml-4">
+                <button onClick={() => openDetailModal(item)} className="text-gray-600 hover:text-gray-900">
+                  <Eye className="w-4 h-4" />
+                </button>
+                {["Admin", "Ensuredit", "Ensuredit Client Lead", "Customer"].includes(user?.role || "") && (
+                  <button onClick={() => openModal(item)} className="text-blue-600 hover:text-blue-900">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                )}
+                {user?.role === "Admin" && (
+                  <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex space-x-2">
+                <Badge className={getStatusColor(item.status)} variant="secondary">
+                  {item.status}
+                </Badge>
+                <Badge className={getPriorityColor(item.priority)} variant="secondary">
+                  {item.priority}
+                </Badge>
+              </div>
+
+              <div className="flex items-center space-x-4 text-sm text-gray-500">
+                {item.pending_with_name && (
+                  <div className="flex items-center">
+                    <Clock className="w-4 h-4 mr-1" />
+                    <span>Pending: {item.pending_with_name}</span>
+                  </div>
+                )}
+                {item.due_date && (
+                  <div className="flex items-center">
+                    <Calendar className="w-4 h-4 mr-1" />
+                    <span>Due: {new Date(item.due_date).toLocaleDateString()}</span>
+                  </div>
+                )}
+                <span>Raised: {new Date(item.raised_date || item.created_at).toLocaleDateString()}</span>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+
+  return (
+    <DashboardLayout>
+      <div className="p-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Business Area Status</h1>
+              <p className="text-gray-600 mt-2">Track and manage status across all clients</p>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              {/* View Toggle */}
+              <div className="flex items-center border rounded-lg p-1">
+                <Button
+                  variant={viewMode === "table" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setViewMode("table")}
+                  className="h-8"
+                >
+                  <Table2 className="h-4 w-4 mr-1" />
+                  Table
+                </Button>
+                <Button
+                  variant={viewMode === "cards" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setViewMode("cards")}
+                  className="h-8"
+                >
+                  <Columns className="h-4 w-4 mr-1" />
+                  Cards
+                </Button>
+              </div>
+
+              {/* CSV Download Button */}
+              <Button variant="outline" onClick={handleDownloadCSV} disabled={filteredItems.length === 0}>
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV ({filteredItems.length})
+              </Button>
+
+              {hasPermission("issues") && (
+                <Button onClick={() => openModal()}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Status Item
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
+              <div>
+                <Label htmlFor="search">Search</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Input
+                    id="search"
+                    placeholder="Search..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="status-filter">Status</Label>
+                <select
+                  id="status-filter"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                >
+                  <option value="">All Statuses</option>
+                  {statuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <Label htmlFor="category-filter">Category</Label>
+                <select
+                  id="category-filter"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                >
+                  <option value="">All Categories</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <Label htmlFor="priority-filter">Priority</Label>
+                <select
+                  id="priority-filter"
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                >
+                  <option value="">All Priorities</option>
+                  {priorities.map((priority) => (
+                    <option key={priority} value={priority}>
+                      {priority}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {["Admin", "Ensuredit", "Ensuredit Client Lead"].includes(user?.role || "") && (
+                <>
+                  <div>
+                    <Label htmlFor="company-filter">Client</Label>
+                    <select
+                      id="company-filter"
+                      value={companyFilter}
+                      onChange={(e) => setCompanyFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="">All Clients</option>
+                      {companies.map((company) => (
+                        <option key={company.id} value={company.id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="insurer-filter">Insurer</Label>
+                    <select
+                      id="insurer-filter"
+                      value={insurerFilter}
+                      onChange={(e) => setInsurerFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="">All Insurers</option>
+                      {insurers.map((insurer) => (
+                        <option key={insurer.id} value={insurer.id}>
+                          {insurer.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setStatusFilter("")
+                    setCategoryFilter("")
+                    setPriorityFilter("")
+                    setCompanyFilter("")
+                    setInsurerFilter("")
+                    setSearchTerm("")
+                  }}
+                  className="w-full"
+                >
+                  <Filter className="w-4 h-4 mr-2" />
+                  Clear
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Project Status List */}
+          {filteredItems.length === 0 ? (
+            <div className="bg-white rounded-lg shadow p-8 text-center">
+              <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Project Status Items Found</h3>
+              <p className="text-gray-600 mb-4">
+                {statusItems.length === 0
+                  ? "No project status items have been created yet."
+                  : "No items match your current filters."}
+              </p>
+              {statusItems.length === 0 && (
+                <Button onClick={() => openModal()}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create First Status Item
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>{viewMode === "table" ? <TableView /> : <CardView />}</>
+          )}
+        </div>
+      </div>
+
+      {/* Add/Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-semibold">
+                  {editingItem ? "Edit Project Status" : "Add New Project Status"}
+                </h3>
+                <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="company_id">Client Company *</Label>
+                    <select
+                      id="company_id"
+                      value={formData.company_id || ""}
+                      onChange={(e) => setFormData({ ...formData, company_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      disabled={user?.role === "Customer"}
+                    >
+                      <option value="">Select Client</option>
+                      {companies.map((company) => (
+                        <option key={company.id} value={company.id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="insurer_id">Insurance Partner</Label>
+                    <select
+                      id="insurer_id"
+                      value={formData.insurer_id || ""}
+                      onChange={(e) => setFormData({ ...formData, insurer_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="">Select Insurer</option>
+                      {insurers.map((insurer) => (
+                        <option key={insurer.id} value={insurer.id}>
+                          {insurer.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="title">Title *</Label>
+                    <Input
+                      id="title"
+                      value={formData.title || ""}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      placeholder="Brief description of the status item"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="description">Description *</Label>
+                    <Textarea
+                      id="description"
+                      value={formData.description || ""}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      placeholder="Detailed description..."
+                      rows={4}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="issue_category">Category *</Label>
+                      <select
+                        id="issue_category"
+                        value={formData.issue_category || "Insurer Integration"}
+                        onChange={(e) => setFormData({ ...formData, issue_category: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        {categories.map((category) => (
+                          <option key={category} value={category}>
+                            {category}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="sub_category">Sub Category</Label>
+                      <select
+                        id="sub_category"
+                        value={formData.sub_category || ""}
+                        onChange={(e) => setFormData({ ...formData, sub_category: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="">Select Sub Category</option>
+                        {subCategories.map((subCategory) => (
+                          <option key={subCategory} value={subCategory}>
+                            {subCategory}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="priority">Priority</Label>
+                      <select
+                        id="priority"
+                        value={formData.priority || "Medium"}
+                        onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        {priorities.map((priority) => (
+                          <option key={priority} value={priority}>
+                            {priority}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="status">Status</Label>
+                      <select
+                        id="status"
+                        value={formData.status || "Raised"}
+                        onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        {statuses.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="pending_with_id">Pending With</Label>
+                      <select
+                        id="pending_with_id"
+                        value={formData.pending_with_id || ""}
+                        onChange={(e) => setFormData({ ...formData, pending_with_id: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="">Select User</option>
+                        {users.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.name} ({user.role_type})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="assigned_to_id">Assigned To</Label>
+                      <select
+                        id="assigned_to_id"
+                        value={formData.assigned_to_id || ""}
+                        onChange={(e) => setFormData({ ...formData, assigned_to_id: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="">Select User</option>
+                        {users.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.name} ({user.role_type})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="raised_date">Raised Date</Label>
+                      <Input
+                        id="raised_date"
+                        type="date"
+                        value={formData.raised_date || ""}
+                        onChange={(e) => setFormData({ ...formData, raised_date: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="due_date">Due Date</Label>
+                      <Input
+                        id="due_date"
+                        type="date"
+                        value={formData.due_date || ""}
+                        onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="followup_notes">Follow-up Notes</Label>
+                    <Textarea
+                      id="followup_notes"
+                      value={formData.followup_notes || ""}
+                      onChange={(e) => setFormData({ ...formData, followup_notes: e.target.value })}
+                      placeholder="Progress updates, next steps, etc..."
+                      rows={3}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="resolution_type">Resolution Type</Label>
+                    <select
+                      id="resolution_type"
+                      value={formData.resolution_type || ""}
+                      onChange={(e) => setFormData({ ...formData, resolution_type: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="">Select Resolution Type</option>
+                      <option value="Completed">Completed</option>
+                      <option value="Implemented">Implemented</option>
+                      <option value="Resolved">Resolved</option>
+                      <option value="Cancelled">Cancelled</option>
+                      <option value="Deferred">Deferred</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6">
+                <Button variant="outline" onClick={() => setShowModal(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSave}>
+                  <Save className="w-4 h-4 mr-2" />
+                  {editingItem ? "Update" : "Create"} Status Item
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detail Modal */}
+      {showDetailModal && viewingItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-xl font-semibold">{viewingItem.title}</h3>
+                  <p className="text-gray-600">
+                    {viewingItem.company_name} • {viewingItem.insurer_name || "No Insurer"}
+                  </p>
+                </div>
+                <button onClick={() => setShowDetailModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                  <h4 className="font-medium text-gray-900 mb-3">Description</h4>
+                  <p className="text-gray-700 mb-6">{viewingItem.description}</p>
+
+                  {viewingItem.followup_notes && (
+                    <>
+                      <h4 className="font-medium text-gray-900 mb-3">Follow-up Notes</h4>
+                      <p className="text-gray-700 mb-6 whitespace-pre-wrap">{viewingItem.followup_notes}</p>
+                    </>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <h5 className="text-sm font-medium text-gray-500 mb-1">Category</h5>
+                      <p className="text-sm">{viewingItem.issue_category}</p>
+                    </div>
+                    <div>
+                      <h5 className="text-sm font-medium text-gray-500 mb-1">Sub Category</h5>
+                      <p className="text-sm">{viewingItem.sub_category || "N/A"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-3">Status Details</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <span className="text-sm text-gray-500">Status</span>
+                      <div className="mt-1">
+                        <Badge className={getStatusColor(viewingItem.status)} variant="secondary">
+                          {viewingItem.status}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-sm text-gray-500">Priority</span>
+                      <div className="mt-1">
+                        <Badge className={getPriorityColor(viewingItem.priority)} variant="secondary">
+                          {viewingItem.priority}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-sm text-gray-500">Raised By</span>
+                      <div className="text-sm text-gray-900">{viewingItem.raised_by_name}</div>
+                    </div>
+                    {viewingItem.pending_with_name && (
+                      <div>
+                        <span className="text-sm text-gray-500">Pending With</span>
+                        <div className="text-sm text-gray-900">{viewingItem.pending_with_name}</div>
+                      </div>
+                    )}
+                    {viewingItem.assigned_to_name && (
+                      <div>
+                        <span className="text-sm text-gray-500">Assigned To</span>
+                        <div className="text-sm text-gray-900">{viewingItem.assigned_to_name}</div>
+                      </div>
+                    )}
+                    {viewingItem.raised_date && (
+                      <div>
+                        <span className="text-sm text-gray-500">Raised Date</span>
+                        <div className="text-sm text-gray-900">
+                          {new Date(viewingItem.raised_date).toLocaleDateString()}
+                        </div>
+                      </div>
+                    )}
+                    {viewingItem.due_date && (
+                      <div>
+                        <span className="text-sm text-gray-500">Due Date</span>
+                        <div className="text-sm text-gray-900">
+                          {new Date(viewingItem.due_date).toLocaleDateString()}
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-sm text-gray-500">Created</span>
+                      <div className="text-sm text-gray-900">
+                        {new Date(viewingItem.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                    {viewingItem.resolved_at && (
+                      <div>
+                        <span className="text-sm text-gray-500">Resolved</span>
+                        <div className="text-sm text-gray-900">
+                          {new Date(viewingItem.resolved_at).toLocaleDateString()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </DashboardLayout>
+  )
+}
