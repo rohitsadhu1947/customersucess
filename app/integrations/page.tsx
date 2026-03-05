@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/lib/auth-context"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -104,6 +105,7 @@ interface Insurer {
 
 export default function IntegrationsPage() {
   const { user, hasPermission } = useAuth()
+  const router = useRouter()
   const [projects, setProjects] = useState<IntegrationProject[]>([])
   const [filteredProjects, setFilteredProjects] = useState<IntegrationProject[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
@@ -433,7 +435,7 @@ export default function IntegrationsPage() {
               </TableCell>
               <TableCell>
                 <div className="flex space-x-1">
-                  <Button variant="ghost" size="sm" onClick={() => openDetailModal(project)} className="h-8 w-8 p-0">
+                  <Button variant="ghost" size="sm" onClick={() => router.push(`/integrations/${project.id}`)} className="h-8 w-8 p-0">
                     <Eye className="h-4 w-4" />
                   </Button>
                   {["Admin", "Ensuredit", "Ensuredit Client Lead", "Customer"].includes(user?.role || "") && (
@@ -482,7 +484,7 @@ export default function IntegrationsPage() {
               <p className="text-xs text-gray-500 mt-1">{project.product_display_name || project.product_name}</p>
             </div>
             <div className="flex space-x-1 ml-4">
-              <button onClick={() => openDetailModal(project)} className="text-gray-600 hover:text-gray-900">
+              <button onClick={() => router.push(`/integrations/${project.id}`)} className="text-gray-600 hover:text-gray-900">
                 <Eye className="w-4 h-4" />
               </button>
               {["Admin", "Ensuredit", "Ensuredit Client Lead", "Customer"].includes(user?.role || "") && (

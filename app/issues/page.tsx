@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/lib/auth-context"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -128,6 +129,7 @@ interface User {
 
 export default function ProjectStatusPage() {
   const { user, hasPermission } = useAuth()
+  const router = useRouter()
   const [projectStatuses, setProjectStatuses] = useState<ProjectStatus[]>([])
   const [filteredStatuses, setFilteredStatuses] = useState<ProjectStatus[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
@@ -219,7 +221,7 @@ export default function ProjectStatusPage() {
       })
     } catch (error) {
       console.error("Error fetching data:", error)
-      setError(`Failed to load project status data: ${error.message}`)
+      setError(`Failed to load project status data: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setLoading(false)
     }
@@ -481,9 +483,9 @@ export default function ProjectStatusPage() {
                   Table
                 </Button>
                 <Button
-                  variant={viewMode === "cards" ? "default" : "ghost"}
+                  variant={viewMode === "card" ? "default" : "ghost"}
                   size="sm"
-                  onClick={() => setViewMode("cards")}
+                  onClick={() => setViewMode("card")}
                   className="h-8"
                 >
                   <Columns className="h-4 w-4 mr-1" />
@@ -700,7 +702,7 @@ export default function ProjectStatusPage() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-2">
-                                <Button size="icon" variant="ghost" onClick={() => openDetailModal(status)}>
+                                <Button size="icon" variant="ghost" onClick={() => router.push(`/issues/${status.id}`)}>
                                   <Eye className="w-4 h-4" />
                                 </Button>
                                 {["Admin", "Ensuredit", "Ensuredit Client Lead", "Customer"].includes(
@@ -747,7 +749,7 @@ export default function ProjectStatusPage() {
                           </div>
                           <div className="flex space-x-1 ml-4">
                             <button
-                              onClick={() => openDetailModal(status)}
+                              onClick={() => router.push(`/issues/${status.id}`)}
                               className="text-gray-600 hover:text-gray-900"
                             >
                               <Eye className="w-4 h-4" />

@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState } from "react"
+import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { Eye, EyeOff, Shield, Users, Building, Mail, Lock } from "lucide-react"
 
@@ -23,7 +24,7 @@ export default function LoginPage() {
     setError("")
 
     try {
-      const success = await login(formData.email, formData.password)
+      const success = await login(formData.email, formData.password, formData.rememberMe)
       if (!success) {
         setError("Invalid email or password")
       }
@@ -146,9 +147,9 @@ export default function LoginPage() {
                   />
                   <span className="ml-2 text-sm text-gray-600">Remember me</span>
                 </label>
-                <a href="#" className="text-sm text-blue-600 hover:text-blue-500 transition-colors">
+                <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-500 transition-colors">
                   Forgot password?
-                </a>
+                </Link>
               </div>
 
               <button
@@ -167,35 +168,37 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <div className="mt-8 p-4 bg-gray-50 rounded-lg border">
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Demo Credentials:</h4>
-              <div className="space-y-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => fillDemoCredentials("admin@ensuredit.com", "admin123")}
-                  className="w-full flex justify-between hover:bg-gray-100 p-2 rounded transition-colors"
-                >
-                  <span className="font-medium text-red-600">Admin:</span>
-                  <span className="text-gray-600">admin@ensuredit.com / admin123</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoCredentials("rajesh@abcinsurance.com", "admin123")}
-                  className="w-full flex justify-between hover:bg-gray-100 p-2 rounded transition-colors"
-                >
-                  <span className="font-medium text-green-600">Customer:</span>
-                  <span className="text-gray-600">rajesh@abcinsurance.com / admin123</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoCredentials("john@ensuredit.com", "admin123")}
-                  className="w-full flex justify-between hover:bg-gray-100 p-2 rounded transition-colors"
-                >
-                  <span className="font-medium text-blue-600">Ensuredit Lead:</span>
-                  <span className="text-gray-600">john@ensuredit.com / admin123</span>
-                </button>
+            {process.env.NODE_ENV === "development" && (
+              <div className="mt-8 p-4 bg-gray-50 rounded-lg border">
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Demo Credentials:</h4>
+                <div className="space-y-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => fillDemoCredentials("admin@ensuredit.com", "admin123")}
+                    className="w-full flex justify-between hover:bg-gray-100 p-2 rounded transition-colors"
+                  >
+                    <span className="font-medium text-red-600">Admin:</span>
+                    <span className="text-gray-600">admin@ensuredit.com / admin123</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fillDemoCredentials("rajesh@abcinsurance.com", "admin123")}
+                    className="w-full flex justify-between hover:bg-gray-100 p-2 rounded transition-colors"
+                  >
+                    <span className="font-medium text-green-600">Customer:</span>
+                    <span className="text-gray-600">rajesh@abcinsurance.com / admin123</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fillDemoCredentials("john@ensuredit.com", "admin123")}
+                    className="w-full flex justify-between hover:bg-gray-100 p-2 rounded transition-colors"
+                  >
+                    <span className="font-medium text-blue-600">Ensuredit Lead:</span>
+                    <span className="text-gray-600">john@ensuredit.com / admin123</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

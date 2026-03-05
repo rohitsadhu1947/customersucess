@@ -169,6 +169,35 @@ export function exportCompanies(companies: any[]): void {
   downloadCSV(csvContent, `companies-${timestamp}.csv`)
 }
 
+// Tickets CSV Configuration
+export const ticketsColumns: CSVColumn[] = [
+  { key: "ticket_number", label: "Ticket #" },
+  { key: "subject", label: "Subject" },
+  { key: "category", label: "Category" },
+  { key: "sub_category", label: "Sub Category" },
+  { key: "priority", label: "Priority" },
+  { key: "status", label: "Status" },
+  { key: "company_name", label: "Company" },
+  { key: "created_by_name", label: "Created By" },
+  { key: "assigned_to_name", label: "Assigned To" },
+  { key: "assigned_group", label: "Group" },
+  { key: "source", label: "Source" },
+  { key: "sla_breach", label: "SLA Breached", transform: formatBoolean },
+  { key: "due_date", label: "Due Date", transform: formatDateTime },
+  { key: "first_response_at", label: "First Response", transform: formatDateTime },
+  { key: "resolved_at", label: "Resolved", transform: formatDateTime },
+  { key: "closed_at", label: "Closed", transform: formatDateTime },
+  { key: "created_at", label: "Created", transform: formatDateTime },
+  { key: "updated_at", label: "Last Updated", transform: formatDateTime },
+]
+
+// Export function for Tickets
+export function exportTickets(tickets: any[]): void {
+  const csvContent = generateCSV(tickets, ticketsColumns)
+  const timestamp = new Date().toISOString().split("T")[0]
+  downloadCSV(csvContent, `tickets-${timestamp}.csv`)
+}
+
 // Export function for Users
 export function exportUsers(users: any[]): void {
   const csvContent = generateCSV(users, usersColumns)

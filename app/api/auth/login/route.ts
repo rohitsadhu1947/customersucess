@@ -1,15 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { SignJWT } from "jose"
 import { cookies } from "next/headers"
-import { neon } from "@neondatabase/serverless"
 import bcrypt from "bcryptjs"
-
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || "fallback-secret-key-for-development")
-const sql = neon(process.env.DATABASE_URL!)
+import { createToken } from "@/lib/auth"
+import { sql } from "@/lib/db"
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = await request.json()
+    const { email, password, rememberMe } = await request.json()
 
     // Query database for user
     const users = await sql`
@@ -41,19 +38,17 @@ export async function POST(request: NextRequest) {
       WHERE id = ${user.id}
     `
 
-    // Create JWT token
-    const token = await new SignJWT({
+    const expirationTime = rememberMe ? "30d" : "24h"
+    const maxAge = rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24
+
+    const token = await createToken({
       userId: user.id.toString(),
       email: user.email,
       name: user.name,
       role: user.role_type,
       companyId: user.company_id?.toString(),
       companyName: user.company_name,
-    })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime("24h")
-      .sign(secret)
+    }, expirationTime)
 
     // Set cookie
     const cookieStore = await cookies()
@@ -61,7 +56,7 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 24, // 24 hours
+      maxAge,
     })
 
     return NextResponse.json({

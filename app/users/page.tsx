@@ -133,6 +133,10 @@ export default function UsersPage() {
       setFormData({
         ...userData,
         password: "", // Don't pre-fill password
+        // email_verified comes from DB as a timestamp string or null — convert to boolean
+        email_verified: !!userData.email_verified,
+        is_active: userData.is_active ?? true,
+        two_factor_enabled: userData.two_factor_enabled ?? false,
       })
     } else {
       setFormData({
@@ -152,8 +156,13 @@ export default function UsersPage() {
     try {
       const method = editingUser ? "PUT" : "POST"
 
-      // Remove empty password field for updates
-      const submitData = { ...formData }
+      // Remove empty password field for updates and ensure booleans are proper booleans
+      const submitData = {
+        ...formData,
+        is_active: Boolean(formData.is_active),
+        email_verified: Boolean(formData.email_verified),
+        two_factor_enabled: Boolean(formData.two_factor_enabled),
+      }
       if (editingUser && !submitData.password) {
         delete submitData.password
       }
@@ -467,7 +476,7 @@ export default function UsersPage() {
                             <Edit2 className="w-4 h-4" />
                           </button>
                         )}
-                        {user?.role === "Admin" && userData.id !== user?.userId && (
+                        {user?.role === "Admin" && userData.id !== user?.id && (
                           <button
                             onClick={() => handleDelete(userData.id, userData.name)}
                             className="text-red-600 hover:text-red-900"

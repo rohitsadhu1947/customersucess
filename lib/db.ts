@@ -1,17 +1,32 @@
-import { neon } from "@neondatabase/serverless"
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless"
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL environment variable is required")
+let _sql: NeonQueryFunction<false, false> | null = null
+
+function getSql(): NeonQueryFunction<false, false> {
+  if (!_sql) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL environment variable is required")
+    }
+    _sql = neon(process.env.DATABASE_URL)
+  }
+  return _sql
 }
 
-// Create a reusable SQL client
-export const sql = neon(process.env.DATABASE_URL)
+// Create a lazy SQL client that initializes on first use
+export const sql = new Proxy((() => {}) as any, {
+  apply(_target: any, _thisArg: any, args: any[]) {
+    return (getSql() as any)(...args)
+  },
+  get(_target: any, prop: string) {
+    return (getSql() as any)[prop]
+  },
+}) as NeonQueryFunction<false, false>
 
 // Example function to test the connection
 export async function testConnection() {
   try {
     const result = await sql`SELECT version()`
-    console.log("Database connected successfully:", result[0].version)
+    // Connection successful
     return true
   } catch (error) {
     console.error("Database connection failed:", error)

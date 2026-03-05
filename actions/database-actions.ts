@@ -29,10 +29,7 @@ export async function queryTable(tableName: string, limit = 10) {
     // Note: In production, you should validate tableName to prevent SQL injection
     const validTableName = tableName.replace(/[^a-zA-Z0-9_]/g, "")
 
-    const result = await sql`
-      SELECT * FROM ${sql(validTableName)} 
-      LIMIT ${limit}
-    `
+    const result = await sql(`SELECT * FROM "${validTableName}" LIMIT ${limit}` as any)
 
     return {
       success: true,

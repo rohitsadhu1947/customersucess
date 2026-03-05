@@ -1,101 +1,176 @@
-import { neon } from "@neondatabase/serverless"
 import { type NextRequest, NextResponse } from "next/server"
-import { jwtVerify } from "jose"
-import { cookies } from "next/headers"
 import bcrypt from "bcryptjs"
-
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || "fallback-secret-key-for-development")
-const sql = neon(process.env.DATABASE_URL!)
-
-async function verifyAuth(request: NextRequest) {
-  const cookieStore = await cookies()
-  const token = cookieStore.get("auth-token")
-
-  if (!token) {
-    throw new Error("No token provided")
-  }
-
-  const { payload } = await jwtVerify(token.value, secret)
-  return payload
-}
+import { verifyAuth } from "@/lib/auth"
+import { sql } from "@/lib/db"
+import { createUserSchema, updateUserSchema, validateBody } from "@/lib/validations"
+import { getPaginationParams, paginatedResponse } from "@/lib/pagination"
+import { logAudit } from "@/lib/audit"
 
 // GET - Fetch all users with company info
 export async function GET(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     const { searchParams } = new URL(request.url)
     const companyId = searchParams.get("company_id")
     const roleType = searchParams.get("role_type")
     const isActive = searchParams.get("is_active")
+    const usePagination = searchParams.has("page")
 
     let users
 
     // Build query based on role and filters
     if (user.role === "Customer" || user.role === "Customer View Only") {
-      // Customer can only see users from their own company
-      users = await sql`
-        SELECT 
-          u.id, u.name, u.email, u.role_type, u.is_active, 
-          u.email_verified, u.two_factor_enabled, u.last_login, 
-          u.created_at, u.updated_at,
-          c.name as company_name
-        FROM users u
-        LEFT JOIN companies c ON u.company_id = c.id
-        WHERE u.company_id = ${user.companyId}
-        ORDER BY u.name ASC
-      `
+      if (usePagination) {
+        const params = getPaginationParams(request)
+        const [{ count: total }] = await sql`
+          SELECT COUNT(*) as count FROM users WHERE company_id = ${user.companyId}
+        `
+        users = await sql`
+          SELECT
+            u.id, u.name, u.email, u.role_type, u.is_active,
+            u.email_verified, u.two_factor_enabled, u.last_login,
+            u.created_at, u.updated_at,
+            c.name as company_name
+          FROM users u
+          LEFT JOIN companies c ON u.company_id = c.id
+          WHERE u.company_id = ${user.companyId}
+          ORDER BY u.name ASC
+          LIMIT ${params.limit} OFFSET ${params.offset}
+        `
+        return NextResponse.json(paginatedResponse(users, Number(total), params))
+      } else {
+        // Customer can only see users from their own company
+        users = await sql`
+          SELECT
+            u.id, u.name, u.email, u.role_type, u.is_active,
+            u.email_verified, u.two_factor_enabled, u.last_login,
+            u.created_at, u.updated_at,
+            c.name as company_name
+          FROM users u
+          LEFT JOIN companies c ON u.company_id = c.id
+          WHERE u.company_id = ${user.companyId}
+          ORDER BY u.name ASC
+        `
+      }
     } else {
       // Admin, Ensuredit can see all users with optional filters
-      const whereClause = "WHERE 1=1"
+      if (usePagination) {
+        const params = getPaginationParams(request)
+        let countResult
+        if (companyId) {
+          countResult = await sql`SELECT COUNT(*) as count FROM users WHERE company_id = ${companyId}`
+        } else if (roleType) {
+          countResult = await sql`SELECT COUNT(*) as count FROM users WHERE role_type = ${roleType}`
+        } else if (isActive) {
+          countResult = await sql`SELECT COUNT(*) as count FROM users WHERE is_active = ${isActive === "true"}`
+        } else {
+          countResult = await sql`SELECT COUNT(*) as count FROM users`
+        }
+        const total = countResult[0].count
 
-      if (companyId) {
-        users = await sql`
-          SELECT 
-            u.id, u.name, u.email, u.role_type, u.is_active, 
-            u.email_verified, u.two_factor_enabled, u.last_login, 
-            u.created_at, u.updated_at, u.company_id,
-            c.name as company_name
-          FROM users u
-          LEFT JOIN companies c ON u.company_id = c.id
-          WHERE u.company_id = ${companyId}
-          ORDER BY u.name ASC
-        `
-      } else if (roleType) {
-        users = await sql`
-          SELECT 
-            u.id, u.name, u.email, u.role_type, u.is_active, 
-            u.email_verified, u.two_factor_enabled, u.last_login, 
-            u.created_at, u.updated_at, u.company_id,
-            c.name as company_name
-          FROM users u
-          LEFT JOIN companies c ON u.company_id = c.id
-          WHERE u.role_type = ${roleType}
-          ORDER BY u.name ASC
-        `
-      } else if (isActive) {
-        users = await sql`
-          SELECT 
-            u.id, u.name, u.email, u.role_type, u.is_active, 
-            u.email_verified, u.two_factor_enabled, u.last_login, 
-            u.created_at, u.updated_at, u.company_id,
-            c.name as company_name
-          FROM users u
-          LEFT JOIN companies c ON u.company_id = c.id
-          WHERE u.is_active = ${isActive === "true"}
-          ORDER BY u.name ASC
-        `
+        if (companyId) {
+          users = await sql`
+            SELECT
+              u.id, u.name, u.email, u.role_type, u.is_active,
+              u.email_verified, u.two_factor_enabled, u.last_login,
+              u.created_at, u.updated_at, u.company_id,
+              c.name as company_name
+            FROM users u
+            LEFT JOIN companies c ON u.company_id = c.id
+            WHERE u.company_id = ${companyId}
+            ORDER BY u.name ASC
+            LIMIT ${params.limit} OFFSET ${params.offset}
+          `
+        } else if (roleType) {
+          users = await sql`
+            SELECT
+              u.id, u.name, u.email, u.role_type, u.is_active,
+              u.email_verified, u.two_factor_enabled, u.last_login,
+              u.created_at, u.updated_at, u.company_id,
+              c.name as company_name
+            FROM users u
+            LEFT JOIN companies c ON u.company_id = c.id
+            WHERE u.role_type = ${roleType}
+            ORDER BY u.name ASC
+            LIMIT ${params.limit} OFFSET ${params.offset}
+          `
+        } else if (isActive) {
+          users = await sql`
+            SELECT
+              u.id, u.name, u.email, u.role_type, u.is_active,
+              u.email_verified, u.two_factor_enabled, u.last_login,
+              u.created_at, u.updated_at, u.company_id,
+              c.name as company_name
+            FROM users u
+            LEFT JOIN companies c ON u.company_id = c.id
+            WHERE u.is_active = ${isActive === "true"}
+            ORDER BY u.name ASC
+            LIMIT ${params.limit} OFFSET ${params.offset}
+          `
+        } else {
+          users = await sql`
+            SELECT
+              u.id, u.name, u.email, u.role_type, u.is_active,
+              u.email_verified, u.two_factor_enabled, u.last_login,
+              u.created_at, u.updated_at, u.company_id,
+              c.name as company_name
+            FROM users u
+            LEFT JOIN companies c ON u.company_id = c.id
+            ORDER BY u.name ASC
+            LIMIT ${params.limit} OFFSET ${params.offset}
+          `
+        }
+        return NextResponse.json(paginatedResponse(users, Number(total), params))
       } else {
-        users = await sql`
-          SELECT 
-            u.id, u.name, u.email, u.role_type, u.is_active, 
-            u.email_verified, u.two_factor_enabled, u.last_login, 
-            u.created_at, u.updated_at, u.company_id,
-            c.name as company_name
-          FROM users u
-          LEFT JOIN companies c ON u.company_id = c.id
-          ORDER BY u.name ASC
-        `
+        if (companyId) {
+          users = await sql`
+            SELECT
+              u.id, u.name, u.email, u.role_type, u.is_active,
+              u.email_verified, u.two_factor_enabled, u.last_login,
+              u.created_at, u.updated_at, u.company_id,
+              c.name as company_name
+            FROM users u
+            LEFT JOIN companies c ON u.company_id = c.id
+            WHERE u.company_id = ${companyId}
+            ORDER BY u.name ASC
+          `
+        } else if (roleType) {
+          users = await sql`
+            SELECT
+              u.id, u.name, u.email, u.role_type, u.is_active,
+              u.email_verified, u.two_factor_enabled, u.last_login,
+              u.created_at, u.updated_at, u.company_id,
+              c.name as company_name
+            FROM users u
+            LEFT JOIN companies c ON u.company_id = c.id
+            WHERE u.role_type = ${roleType}
+            ORDER BY u.name ASC
+          `
+        } else if (isActive) {
+          users = await sql`
+            SELECT
+              u.id, u.name, u.email, u.role_type, u.is_active,
+              u.email_verified, u.two_factor_enabled, u.last_login,
+              u.created_at, u.updated_at, u.company_id,
+              c.name as company_name
+            FROM users u
+            LEFT JOIN companies c ON u.company_id = c.id
+            WHERE u.is_active = ${isActive === "true"}
+            ORDER BY u.name ASC
+          `
+        } else {
+          users = await sql`
+            SELECT
+              u.id, u.name, u.email, u.role_type, u.is_active,
+              u.email_verified, u.two_factor_enabled, u.last_login,
+              u.created_at, u.updated_at, u.company_id,
+              c.name as company_name
+            FROM users u
+            LEFT JOIN companies c ON u.company_id = c.id
+            ORDER BY u.name ASC
+          `
+        }
       }
     }
 
@@ -109,27 +184,27 @@ export async function GET(request: NextRequest) {
 // POST - Create new user (Fixed to match your exact database schema)
 export async function POST(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     if (!["Admin", "Ensuredit"].includes(user.role as string)) {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
     }
 
     const body = await request.json()
+    const validation = validateBody(createUserSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
     const {
       name,
       email,
       password,
       role_type,
       company_id,
-      is_active = true,
-      email_verified = false,
-      two_factor_enabled = false,
-    } = body
-
-    if (!name || !email || !password || !role_type) {
-      return NextResponse.json({ error: "Name, email, password, and role are required" }, { status: 400 })
-    }
+      is_active,
+      email_verified,
+      two_factor_enabled,
+    } = validation.data
 
     // Check if email already exists
     const existingUsers = await sql`
@@ -176,15 +251,13 @@ export async function POST(request: NextRequest) {
         email_verified, two_factor_enabled, created_at
     `
 
-    console.log("User created successfully:", newUsers[0])
+    await logAudit({ userId: user.userId, action: "create", entityType: "user", entityId: newUsers[0].id, details: { name, email } })
+
     return NextResponse.json(newUsers[0], { status: 201 })
   } catch (error) {
     console.error("Users POST error:", error)
     return NextResponse.json(
-      {
-        error: "Failed to create user",
-        details: error.message,
-      },
+      { error: "Failed to create user" },
       { status: 500 },
     )
   }
@@ -193,18 +266,18 @@ export async function POST(request: NextRequest) {
 // PUT - Update user (Fixed to match your database schema)
 export async function PUT(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     if (!["Admin", "Ensuredit"].includes(user.role as string)) {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
     }
 
     const body = await request.json()
-    const { id, name, email, role_type, company_id, is_active, email_verified, two_factor_enabled, password } = body
-
-    if (!id) {
-      return NextResponse.json({ error: "User ID is required" }, { status: 400 })
+    const validation = validateBody(updateUserSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
+    const { id, name, email, role_type, company_id, is_active, email_verified, two_factor_enabled, password } = validation.data
 
     // Convert email_verified boolean to timestamp
     const emailVerifiedTimestamp = email_verified ? new Date().toISOString() : null
@@ -229,6 +302,7 @@ export async function PUT(request: NextRequest) {
           id, name, email, role_type, company_id, is_active, 
           email_verified, two_factor_enabled, updated_at
       `
+      await logAudit({ userId: user.userId, action: "update", entityType: "user", entityId: id })
       return NextResponse.json(updatedUsers[0])
     } else {
       const updatedUsers = await sql`
@@ -247,6 +321,7 @@ export async function PUT(request: NextRequest) {
           id, name, email, role_type, company_id, is_active, 
           email_verified, two_factor_enabled, updated_at
       `
+      await logAudit({ userId: user.userId, action: "update", entityType: "user", entityId: id })
       return NextResponse.json(updatedUsers[0])
     }
   } catch (error) {
@@ -258,7 +333,7 @@ export async function PUT(request: NextRequest) {
 // DELETE - Delete user
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     if (user.role !== "Admin") {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })

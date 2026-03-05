@@ -1,27 +1,11 @@
-import { neon } from "@neondatabase/serverless"
 import { type NextRequest, NextResponse } from "next/server"
-import { jwtVerify } from "jose"
-import { cookies } from "next/headers"
-
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || "fallback-secret-key-for-development")
-const sql = neon(process.env.DATABASE_URL!)
-
-async function verifyAuth(request: NextRequest) {
-  const cookieStore = await cookies()
-  const token = cookieStore.get("auth-token")
-
-  if (!token) {
-    throw new Error("No token provided")
-  }
-
-  const { payload } = await jwtVerify(token.value, secret)
-  return payload
-}
+import { verifyAuth } from "@/lib/auth"
+import { sql } from "@/lib/db"
 
 // GET - Fetch all products with sub-products
 export async function GET(request: NextRequest) {
   try {
-    await verifyAuth(request)
+    await verifyAuth()
 
     const products = await sql`
       SELECT 
@@ -62,7 +46,7 @@ export async function GET(request: NextRequest) {
 // POST - Create new product
 export async function POST(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     if (!["Admin", "Ensuredit"].includes(user.role as string)) {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
@@ -109,7 +93,7 @@ export async function POST(request: NextRequest) {
 // PUT - Update product
 export async function PUT(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     if (!["Admin", "Ensuredit"].includes(user.role as string)) {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
@@ -166,7 +150,7 @@ export async function PUT(request: NextRequest) {
 // DELETE - Delete product
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     if (user.role !== "Admin") {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })

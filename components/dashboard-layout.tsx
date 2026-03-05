@@ -2,9 +2,10 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useAuth } from "@/lib/auth-context"
 import Link from "next/link"
+import { usePathname, useRouter } from "next/navigation"
 import {
   Home,
   Package,
@@ -18,12 +19,103 @@ import {
   Bell,
   Search,
   MessageSquare,
+  GitBranch,
+  Heart,
+  Ticket,
+  BarChart3,
 } from "lucide-react"
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, hasPermission } = useAuth()
+  const pathname = usePathname()
+  const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [userDropdownOpen, setUserDropdownOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [notifications, setNotifications] = useState<{ id: number; title: string; message: string; type: string; entity_type: string; entity_id: string; is_read: boolean; created_at: string }[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<{
+    companies: { id: string; name: string }[]
+    issues: { id: string; title: string }[]
+    integrations: { id: string; company_name: string; insurer_name: string }[]
+    tickets?: { id: string; ticket_number: string; subject: string; status: string }[]
+  } | null>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
+  const notificationsRef = useRef<HTMLDivElement>(null)
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Fetch notifications
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await fetch("/api/notifications?limit=10")
+      if (res.ok) {
+        const data = await res.json()
+        setNotifications(data.notifications || [])
+        setUnreadCount(data.unreadCount || 0)
+      }
+    } catch {
+      // Notifications table may not exist yet
+    }
+  }, [])
+
+  useEffect(() => {
+    if (user) {
+      fetchNotifications()
+      const interval = setInterval(fetchNotifications, 60000) // Poll every 60s
+      return () => clearInterval(interval)
+    }
+  }, [user, fetchNotifications])
+
+  const handleMarkAllRead = async () => {
+    try {
+      await fetch("/api/notifications", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markAll: true }),
+      })
+      setUnreadCount(0)
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
+    } catch {
+      // Silently fail
+    }
+  }
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setSearchResults(null)
+      }
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
+        setNotificationsOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value)
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current)
+    }
+    if (value.length < 2) {
+      setSearchResults(null)
+      return
+    }
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(value)}`)
+        if (res.ok) {
+          const data = await res.json()
+          setSearchResults(data)
+        }
+      } catch {
+        setSearchResults(null)
+      }
+    }, 300)
+  }, [])
 
   if (!user) {
     return null
@@ -41,14 +133,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   const navigation = [
-    { name: "Dashboard", href: "/", icon: Home, current: true, permission: "dashboard" },
-    { name: "Integrations", href: "/integrations", icon: Package, current: false, permission: "integrations" },
-    { name: "Project Status", href: "/issues", icon: MessageSquare, current: false, permission: "issues" },
-    { name: "Reports", href: "/reports", icon: BarChart, current: false, permission: "reports" },
-    { name: "Companies", href: "/companies", icon: Building, current: false, permission: "companies" },
-    { name: "Users", href: "/users", icon: Users, current: false, permission: "users" },
-    { name: "Master Data", href: "/master-data", icon: Settings, current: false, permission: "master-data" },
+    { name: "Dashboard", href: "/", icon: Home, permission: "dashboard" },
+    { name: "Integrations", href: "/integrations", icon: Package, permission: "integrations" },
+    { name: "Pipeline", href: "/pipeline", icon: GitBranch, permission: "integrations" },
+    { name: "Issues", href: "/issues", icon: MessageSquare, permission: "issues" },
+    { name: "Tickets", href: "/tickets", icon: Ticket, permission: "tickets" },
+    { name: "Ticket Dashboard", href: "/ticket-dashboard", icon: BarChart3, permission: "tickets" },
+    { name: "Reports", href: "/reports", icon: BarChart, permission: "reports" },
+    { name: "Companies", href: "/companies", icon: Building, permission: "companies" },
+    { name: "Company Health", href: "/company-health", icon: Heart, permission: "companies" },
+    { name: "Users", href: "/users", icon: Users, permission: "users" },
+    { name: "Master Data", href: "/master-data", icon: Settings, permission: "master-data" },
   ].filter((item) => hasPermission(item.permission))
+
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/"
+    return pathname.startsWith(href)
+  }
+
+  const currentPage = navigation.find((item) => isActive(item.href))?.name || "Dashboard"
 
   const getRoleBadgeColor = (role: string) => {
     const colors = {
@@ -93,7 +196,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 key={item.name}
                 href={item.href}
                 className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  item.current
+                  isActive(item.href)
                     ? "bg-blue-50 text-blue-700 border-r-4 border-blue-700"
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                 }`}
@@ -124,25 +227,187 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <header className="bg-white shadow-sm border-b border-gray-200">
           <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center space-x-2">
-              <Home className="w-4 h-4 text-gray-400" />
-              <span className="text-gray-400">/</span>
-              <span className="text-sm font-medium text-gray-900">Dashboard</span>
+              <Link href="/" className="text-gray-400 hover:text-gray-600">
+                <Home className="w-4 h-4" />
+              </Link>
+              {currentPage !== "Dashboard" && (
+                <>
+                  <span className="text-gray-400">/</span>
+                  <span className="text-sm font-medium text-gray-900">{currentPage}</span>
+                </>
+              )}
             </div>
 
             <div className="flex items-center space-x-4">
-              <div className="relative hidden md:block">
+              <div className="relative hidden md:block" ref={searchRef}>
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
                   className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
+                {searchResults && (
+                  <div className="absolute left-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 max-h-96 overflow-y-auto">
+                    {searchResults.companies.length === 0 &&
+                      searchResults.issues.length === 0 &&
+                      searchResults.integrations.length === 0 &&
+                      (!searchResults.tickets || searchResults.tickets.length === 0) ? (
+                      <div className="px-4 py-3 text-sm text-gray-500">No results found</div>
+                    ) : (
+                      <>
+                        {searchResults.companies.length > 0 && (
+                          <div>
+                            <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                              Companies
+                            </div>
+                            {searchResults.companies.map((company) => (
+                              <button
+                                key={company.id}
+                                onClick={() => {
+                                  router.push(`/companies/${company.id}`)
+                                  setSearchResults(null)
+                                  setSearchQuery("")
+                                }}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                              >
+                                <Building className="w-4 h-4 mr-2 text-gray-400" />
+                                {company.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {searchResults.issues.length > 0 && (
+                          <div>
+                            <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                              Issues
+                            </div>
+                            {searchResults.issues.map((issue) => (
+                              <button
+                                key={issue.id}
+                                onClick={() => {
+                                  router.push(`/issues/${issue.id}`)
+                                  setSearchResults(null)
+                                  setSearchQuery("")
+                                }}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                              >
+                                <MessageSquare className="w-4 h-4 mr-2 text-gray-400" />
+                                {issue.title}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {searchResults.integrations.length > 0 && (
+                          <div>
+                            <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                              Integrations
+                            </div>
+                            {searchResults.integrations.map((integration) => (
+                              <button
+                                key={integration.id}
+                                onClick={() => {
+                                  router.push(`/integrations/${integration.id}`)
+                                  setSearchResults(null)
+                                  setSearchQuery("")
+                                }}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                              >
+                                <Package className="w-4 h-4 mr-2 text-gray-400" />
+                                {integration.company_name} &mdash; {integration.insurer_name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {searchResults.tickets && searchResults.tickets.length > 0 && (
+                          <div>
+                            <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                              Tickets
+                            </div>
+                            {searchResults.tickets.map((ticket) => (
+                              <button
+                                key={ticket.id}
+                                onClick={() => {
+                                  router.push(`/tickets/${ticket.id}`)
+                                  setSearchResults(null)
+                                  setSearchQuery("")
+                                }}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                              >
+                                <Ticket className="w-4 h-4 mr-2 text-gray-400" />
+                                <span className="font-mono text-xs text-gray-500 mr-2">{ticket.ticket_number}</span>
+                                {ticket.subject}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <button className="p-2 rounded-lg hover:bg-gray-100 transition-colors relative">
-                <Bell className="w-5 h-5 text-gray-600" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+              <div className="relative" ref={notificationsRef}>
+                <button
+                  onClick={() => setNotificationsOpen(!notificationsOpen)}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors relative"
+                >
+                  <Bell className="w-5 h-5 text-gray-600" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {notificationsOpen && (
+                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                    <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                      <p className="text-sm font-medium text-gray-900">Notifications</p>
+                      {unreadCount > 0 && (
+                        <button onClick={handleMarkAllRead} className="text-xs text-blue-600 hover:text-blue-700">
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-6 flex flex-col items-center text-gray-400">
+                        <Bell className="w-6 h-6 mb-2" />
+                        <p className="text-sm">No notifications</p>
+                      </div>
+                    ) : (
+                      <div className="max-h-80 overflow-y-auto">
+                        {notifications.map((notif) => (
+                          <button
+                            key={notif.id}
+                            onClick={() => {
+                              if (notif.entity_type && notif.entity_id) {
+                                const routes: Record<string, string> = {
+                                  issue: `/issues/${notif.entity_id}`,
+                                  company: `/companies/${notif.entity_id}`,
+                                  ticket: `/tickets/${notif.entity_id}`,
+                                  integration: `/integrations/${notif.entity_id}`,
+                                }
+                                const route = routes[notif.entity_type]
+                                if (route) router.push(route)
+                              }
+                              setNotificationsOpen(false)
+                            }}
+                            className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 ${
+                              !notif.is_read ? "bg-blue-50" : ""
+                            }`}
+                          >
+                            <p className="text-sm font-medium text-gray-900">{notif.title}</p>
+                            {notif.message && <p className="text-xs text-gray-500 mt-0.5">{notif.message}</p>}
+                            <p className="text-xs text-gray-400 mt-1">{new Date(notif.created_at).toLocaleString()}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <div className="relative">
                 <button

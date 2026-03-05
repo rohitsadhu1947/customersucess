@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Plus, Users, Calendar, Mail, Building2, Save, Edit2, Download } from "lucide-react"
+import { Plus, Users, Calendar, Mail, Building2, Save, Edit2, Download, Eye } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { exportCompanies } from "@/lib/csv-export"
 
 interface Company {
@@ -28,6 +29,7 @@ interface Company {
 
 export default function CompaniesPage() {
   const { user, hasPermission } = useAuth()
+  const router = useRouter()
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -182,7 +184,8 @@ export default function CompaniesPage() {
             {companies.map((company) => (
               <div
                 key={company.id}
-                className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-shadow"
+                className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-shadow cursor-pointer"
+                onClick={() => router.push(`/companies/${company.id}`)}
               >
                 <div className="flex justify-between items-start mb-4">
                   <h3 className="text-lg font-semibold text-gray-900">{company.name}</h3>
@@ -191,7 +194,7 @@ export default function CompaniesPage() {
                       {company.status}
                     </Badge>
                     {["Admin", "Ensuredit", "Ensuredit Client Lead"].includes(user?.role || "") && (
-                      <Button variant="ghost" size="sm" onClick={() => openModal(company)} className="h-8 w-8 p-0">
+                      <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); openModal(company) }} className="h-8 w-8 p-0">
                         <Edit2 className="h-4 w-4" />
                       </Button>
                     )}

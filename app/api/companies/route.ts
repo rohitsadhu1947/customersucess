@@ -1,67 +1,114 @@
-import { neon } from "@neondatabase/serverless"
 import { type NextRequest, NextResponse } from "next/server"
-import { jwtVerify } from "jose"
-import { cookies } from "next/headers"
-
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || "fallback-secret-key-for-development")
-const sql = neon(process.env.DATABASE_URL!)
-
-async function verifyAuth(request: NextRequest) {
-  const cookieStore = await cookies()
-  const token = cookieStore.get("auth-token")
-
-  if (!token) {
-    throw new Error("No token provided")
-  }
-
-  const { payload } = await jwtVerify(token.value, secret)
-  return payload
-}
+import { verifyAuth } from "@/lib/auth"
+import { sql } from "@/lib/db"
+import { getPaginationParams, paginatedResponse } from "@/lib/pagination"
+import { createCompanySchema, updateCompanySchema, validateBody } from "@/lib/validations"
+import { logAudit } from "@/lib/audit"
 
 // GET - Fetch companies with user counts
 export async function GET(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
+
+    const { searchParams } = new URL(request.url)
+    const usePagination = searchParams.has("page")
 
     let companies
 
     if (user.role === "Customer" || user.role === "Customer View Only") {
-      companies = await sql`
-        SELECT 
-          c.*,
-          COALESCE(u.user_count, 0) as user_count,
-          COALESCE(u.active_user_count, 0) as active_user_count
-        FROM companies c
-        LEFT JOIN (
-          SELECT 
-            company_id,
-            COUNT(*) as user_count,
-            COUNT(CASE WHEN is_active = true THEN 1 END) as active_user_count
-          FROM users 
-          WHERE company_id IS NOT NULL
-          GROUP BY company_id
-        ) u ON c.id = u.company_id
-        WHERE c.id = ${user.companyId}
-        ORDER BY c.name ASC
-      `
+      if (usePagination) {
+        const params = getPaginationParams(request)
+        const [{ count: total }] = await sql`
+          SELECT COUNT(*) as count FROM companies WHERE id = ${user.companyId} AND (is_deleted = false OR is_deleted IS NULL)
+        `
+        companies = await sql`
+          SELECT
+            c.*,
+            COALESCE(u.user_count, 0) as user_count,
+            COALESCE(u.active_user_count, 0) as active_user_count
+          FROM companies c
+          LEFT JOIN (
+            SELECT
+              company_id,
+              COUNT(*) as user_count,
+              COUNT(CASE WHEN is_active = true THEN 1 END) as active_user_count
+            FROM users
+            WHERE company_id IS NOT NULL
+            GROUP BY company_id
+          ) u ON c.id = u.company_id
+          WHERE c.id = ${user.companyId}
+            AND (c.is_deleted = false OR c.is_deleted IS NULL)
+          ORDER BY c.name ASC
+          LIMIT ${params.limit} OFFSET ${params.offset}
+        `
+        return NextResponse.json(paginatedResponse(companies, Number(total), params))
+      } else {
+        companies = await sql`
+          SELECT
+            c.*,
+            COALESCE(u.user_count, 0) as user_count,
+            COALESCE(u.active_user_count, 0) as active_user_count
+          FROM companies c
+          LEFT JOIN (
+            SELECT
+              company_id,
+              COUNT(*) as user_count,
+              COUNT(CASE WHEN is_active = true THEN 1 END) as active_user_count
+            FROM users
+            WHERE company_id IS NOT NULL
+            GROUP BY company_id
+          ) u ON c.id = u.company_id
+          WHERE c.id = ${user.companyId}
+            AND (c.is_deleted = false OR c.is_deleted IS NULL)
+          ORDER BY c.name ASC
+        `
+      }
     } else {
-      companies = await sql`
-        SELECT 
-          c.*,
-          COALESCE(u.user_count, 0) as user_count,
-          COALESCE(u.active_user_count, 0) as active_user_count
-        FROM companies c
-        LEFT JOIN (
-          SELECT 
-            company_id,
-            COUNT(*) as user_count,
-            COUNT(CASE WHEN is_active = true THEN 1 END) as active_user_count
-          FROM users 
-          WHERE company_id IS NOT NULL
-          GROUP BY company_id
-        ) u ON c.id = u.company_id
-        ORDER BY c.name ASC
-      `
+      if (usePagination) {
+        const params = getPaginationParams(request)
+        const [{ count: total }] = await sql`
+          SELECT COUNT(*) as count FROM companies WHERE (is_deleted = false OR is_deleted IS NULL)
+        `
+        companies = await sql`
+          SELECT
+            c.*,
+            COALESCE(u.user_count, 0) as user_count,
+            COALESCE(u.active_user_count, 0) as active_user_count
+          FROM companies c
+          LEFT JOIN (
+            SELECT
+              company_id,
+              COUNT(*) as user_count,
+              COUNT(CASE WHEN is_active = true THEN 1 END) as active_user_count
+            FROM users
+            WHERE company_id IS NOT NULL
+            GROUP BY company_id
+          ) u ON c.id = u.company_id
+          WHERE (c.is_deleted = false OR c.is_deleted IS NULL)
+          ORDER BY c.name ASC
+          LIMIT ${params.limit} OFFSET ${params.offset}
+        `
+        return NextResponse.json(paginatedResponse(companies, Number(total), params))
+      } else {
+        companies = await sql`
+          SELECT
+            c.*,
+            COALESCE(u.user_count, 0) as user_count,
+            COALESCE(u.active_user_count, 0) as active_user_count
+          FROM companies c
+          LEFT JOIN (
+            SELECT
+              company_id,
+              COUNT(*) as user_count,
+              COUNT(CASE WHEN is_active = true THEN 1 END) as active_user_count
+            FROM users
+            WHERE company_id IS NOT NULL
+            GROUP BY company_id
+          ) u ON c.id = u.company_id
+          WHERE (c.is_deleted = false OR c.is_deleted IS NULL)
+          ORDER BY c.name ASC
+        `
+      }
     }
 
     return NextResponse.json(companies)
@@ -74,38 +121,30 @@ export async function GET(request: NextRequest) {
 // POST - Create company
 export async function POST(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     if (!["Admin", "Ensuredit", "Ensuredit Client Lead"].includes(user.role as string)) {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
     }
 
     const body = await request.json()
+    const validation = validateBody(createCompanySchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
     const {
       name,
       ensuredit_lead_name,
       client_lead_name,
       client_lead_email,
       customer_since,
-      status = "Active",
+      status,
       notes,
-    } = body
-
-    if (!name || name.trim() === "") {
-      return NextResponse.json({ error: "Company name is required" }, { status: 400 })
-    }
-
-    // Validate email if provided
-    if (client_lead_email && client_lead_email.trim() !== "") {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      if (!emailRegex.test(client_lead_email)) {
-        return NextResponse.json({ error: "Invalid email format" }, { status: 400 })
-      }
-    }
+    } = validation.data
 
     // Check for duplicate names
     const existing = await sql`
-      SELECT id FROM companies WHERE name = ${name.trim()}
+      SELECT id FROM companies WHERE name = ${name}
     `
 
     if (existing.length > 0) {
@@ -122,7 +161,7 @@ export async function POST(request: NextRequest) {
         status,
         notes
       ) VALUES (
-        ${name.trim()},
+        ${name},
         ${ensuredit_lead_name?.trim() || null},
         ${client_lead_name?.trim() || null},
         ${client_lead_email?.trim() || null},
@@ -132,6 +171,8 @@ export async function POST(request: NextRequest) {
       )
       RETURNING *
     `
+
+    await logAudit({ userId: user.userId, action: "create", entityType: "company", entityId: newCompanies[0].id, details: { name } })
 
     return NextResponse.json(newCompanies[0], { status: 201 })
   } catch (error) {
@@ -143,7 +184,7 @@ export async function POST(request: NextRequest) {
 // PUT - Update company
 export async function PUT(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     if (!["Admin", "Ensuredit", "Ensuredit Client Lead"].includes(user.role as string)) {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
@@ -157,23 +198,15 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, ensuredit_lead_name, client_lead_name, client_lead_email, customer_since, status, notes } = body
-
-    if (!name || name.trim() === "") {
-      return NextResponse.json({ error: "Company name is required" }, { status: 400 })
+    const validation = validateBody(updateCompanySchema, { ...body, id })
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
-
-    // Validate email if provided
-    if (client_lead_email && client_lead_email.trim() !== "") {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      if (!emailRegex.test(client_lead_email)) {
-        return NextResponse.json({ error: "Invalid email format" }, { status: 400 })
-      }
-    }
+    const { name, ensuredit_lead_name, client_lead_name, client_lead_email, customer_since, status, notes } = validation.data
 
     // Check for duplicate names (excluding current)
     const existing = await sql`
-      SELECT id FROM companies WHERE name = ${name.trim()} AND id != ${id}
+      SELECT id FROM companies WHERE name = ${name} AND id != ${id}
     `
 
     if (existing.length > 0) {
@@ -181,9 +214,9 @@ export async function PUT(request: NextRequest) {
     }
 
     const updatedCompanies = await sql`
-      UPDATE companies 
-      SET 
-        name = ${name.trim()},
+      UPDATE companies
+      SET
+        name = ${name},
         ensuredit_lead_name = ${ensuredit_lead_name?.trim() || null},
         client_lead_name = ${client_lead_name?.trim() || null},
         client_lead_email = ${client_lead_email?.trim() || null},
@@ -199,6 +232,8 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 })
     }
 
+    await logAudit({ userId: user.userId, action: "update", entityType: "company", entityId: id })
+
     return NextResponse.json(updatedCompanies[0])
   } catch (error) {
     console.error("Companies PUT error:", error)
@@ -209,7 +244,7 @@ export async function PUT(request: NextRequest) {
 // DELETE - Delete company
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await verifyAuth(request)
+    const user = await verifyAuth()
 
     if (user.role !== "Admin") {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
@@ -250,7 +285,9 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    await sql`DELETE FROM companies WHERE id = ${id}`
+    await sql`UPDATE companies SET is_deleted = true, updated_at = CURRENT_TIMESTAMP WHERE id = ${id}`
+
+    await logAudit({ userId: user.userId, action: "delete", entityType: "company", entityId: id })
 
     return NextResponse.json({ success: true })
   } catch (error) {

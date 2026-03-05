@@ -15,7 +15,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null
-  login: (email: string, password: string) => Promise<boolean>
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<boolean>
   logout: () => Promise<void>
   loading: boolean
   hasPermission: (resource: string) => boolean
@@ -25,11 +25,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Role-based permissions
 const ROLE_PERMISSIONS = {
-  Admin: ["dashboard", "integrations", "issues", "reports", "companies", "users", "master-data", "settings"],
-  Ensuredit: ["dashboard", "integrations", "issues", "reports", "companies", "users", "master-data"],
-  "Ensuredit Client Lead": ["dashboard", "integrations", "issues", "reports", "companies", "users"],
-  Customer: ["dashboard", "integrations", "issues", "reports"],
-  "Customer View Only": ["dashboard", "reports"],
+  Admin: ["dashboard", "integrations", "issues", "tickets", "reports", "companies", "users", "master-data", "settings"],
+  Ensuredit: ["dashboard", "integrations", "issues", "tickets", "reports", "companies", "users", "master-data"],
+  "Ensuredit Client Lead": ["dashboard", "integrations", "issues", "tickets", "reports", "companies", "users"],
+  Customer: ["dashboard", "integrations", "issues", "tickets", "reports"],
+  "Customer View Only": ["dashboard", "tickets", "reports"],
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -45,31 +45,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    // Check if user is stored in localStorage
-    const storedUser = localStorage.getItem("ensuredit-user")
-    if (storedUser) {
+    // Verify session via httpOnly cookie (server-side check)
+    const checkSession = async () => {
       try {
-        const userData = JSON.parse(storedUser)
-        setUser(userData)
+        const response = await fetch("/api/auth/me")
+        if (response.ok) {
+          const data = await response.json()
+          if (data.user) {
+            setUser(data.user)
+          }
+        }
       } catch (error) {
-        console.error("Error parsing stored user:", error)
-        localStorage.removeItem("ensuredit-user")
+        console.error("Session check error:", error)
+      } finally {
+        setLoading(false)
       }
     }
-    setLoading(false)
+    checkSession()
   }, [])
 
   useEffect(() => {
     // Redirect logic - only run when not loading
     if (!loading) {
-      if (!user && pathname !== "/login") {
+      const publicPaths = ["/login", "/forgot-password", "/reset-password"]
+      if (!user && !publicPaths.includes(pathname)) {
         router.push("/login")
       } else if (user && pathname === "/login") {
         router.push("/")
       } else if (user && pathname !== "/login") {
         // Check if user has permission for current path
         const currentSection = pathname.split("/")[1] || "dashboard"
-        const hasAccess = hasPermission(currentSection)
+        // Map URL paths to their permission keys
+        const PATH_TO_PERMISSION: Record<string, string> = {
+          "pipeline": "integrations",
+          "company-health": "companies",
+          "master-data": "master-data",
+          "project-status": "integrations",
+          "ticket-dashboard": "tickets",
+        }
+        const permissionKey = PATH_TO_PERMISSION[currentSection] || currentSection
+        const hasAccess = hasPermission(permissionKey)
 
         if (!hasAccess) {
           router.push("/")
@@ -78,23 +93,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, loading, pathname, router])
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string, rememberMe?: boolean): Promise<boolean> => {
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, rememberMe }),
       })
 
       if (response.ok) {
         const data = await response.json()
         setUser(data.user)
-
-        // Store user in localStorage for client-side state persistence
-        localStorage.setItem("ensuredit-user", JSON.stringify(data.user))
-
         router.push("/")
         return true
       } else {
@@ -115,7 +126,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("Logout error:", error)
     } finally {
       setUser(null)
-      localStorage.removeItem("ensuredit-user")
       router.push("/login")
     }
   }

@@ -1,12 +1,13 @@
-import { neon } from "@neondatabase/serverless"
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
-
-const sql = neon(process.env.DATABASE_URL!)
+import { sql } from "@/lib/db"
 
 async function updatePasswords() {
+  if (process.env.NODE_ENV !== "development") {
+    return NextResponse.json({ error: "Not available in production" }, { status: 404 })
+  }
+
   try {
-    // Hash the password 'admin123' with the same method our login uses
     const hashedPassword = await bcrypt.hash("admin123", 12)
 
     // Update password hashes for the demo users
@@ -21,11 +22,10 @@ async function updatePasswords() {
       success: true,
       message: "Password hashes updated successfully",
       updatedUsers: updatedUsers,
-      hashedPassword: hashedPassword, // For debugging
     })
   } catch (error) {
     console.error("Password update error:", error)
-    return NextResponse.json({ error: "Failed to update passwords", details: error.message }, { status: 500 })
+    return NextResponse.json({ error: "Failed to update passwords" }, { status: 500 })
   }
 }
 

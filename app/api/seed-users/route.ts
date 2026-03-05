@@ -1,12 +1,13 @@
-import { neon } from "@neondatabase/serverless"
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
-
-const sql = neon(process.env.DATABASE_URL!)
+import { sql } from "@/lib/db"
 
 export async function POST() {
+  if (process.env.NODE_ENV !== "development") {
+    return NextResponse.json({ error: "Not available in production" }, { status: 404 })
+  }
+
   try {
-    // Hash the password 'admin123'
     const hashedPassword = await bcrypt.hash("admin123", 12)
 
     // First, let's check if companies exist and create them if they don't
@@ -42,10 +43,9 @@ export async function POST() {
       success: true,
       message: "Demo users created successfully",
       users: users,
-      hashedPassword: hashedPassword, // For debugging
     })
   } catch (error) {
     console.error("Seeding error:", error)
-    return NextResponse.json({ error: "Failed to seed users", details: error.message }, { status: 500 })
+    return NextResponse.json({ error: "Failed to seed users" }, { status: 500 })
   }
 }
