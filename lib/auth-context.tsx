@@ -78,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Map URL paths to their permission keys
         const PATH_TO_PERMISSION: Record<string, string> = {
           "pipeline": "integrations",
+          "insurer-plans": "integrations",
           "company-health": "companies",
           "master-data": "master-data",
           "project-status": "integrations",
