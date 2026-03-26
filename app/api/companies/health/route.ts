@@ -42,23 +42,36 @@ interface CompanyHealth {
 }
 
 function computeHealthScore(company: CompanyHealthRow): number {
+  // Unified health score algorithm (0-100)
+  // Base: 100 points
+  // Deductions: escalation rate (up to -40), open issues with no resolution (up to -10)
+  // Bonuses: resolution rate (up to +10), integration progress (up to +15)
   let healthScore = 100
   const totalIssues = Number(company.total_issues)
   const escalated = Number(company.escalated_issues)
   const resolved = Number(company.resolved_issues)
   const totalIntegrations = Number(company.total_integrations)
   const live = Number(company.live_integrations)
+  const active = Number(company.active_integrations)
 
   if (totalIssues > 0) {
+    // Escalation penalty: up to -40 points
     const escalationRate = escalated / totalIssues
     healthScore -= escalationRate * 40
+
+    // Resolution bonus: 0 to +10 based on resolution rate
     const resolutionRate = resolved / totalIssues
-    healthScore += (resolutionRate - 0.5) * 20
+    healthScore += resolutionRate * 10
   }
+  // No penalty for zero issues — that's a good thing
+
   if (totalIntegrations > 0) {
-    const liveRate = live / totalIntegrations
-    healthScore += (liveRate - 0.3) * 30
+    // Integration progress: count both live and active-in-progress
+    // Live integrations worth full credit, active ones worth half
+    const progressRate = (live + active * 0.5) / totalIntegrations
+    healthScore += progressRate * 15 - 5 // -5 baseline so 0 progress = slight penalty
   }
+
   healthScore = Math.max(0, Math.min(100, Math.round(healthScore)))
   return healthScore
 }

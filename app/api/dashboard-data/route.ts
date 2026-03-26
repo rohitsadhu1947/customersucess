@@ -1011,6 +1011,7 @@ export async function GET() {
             c.name,
             COALESCE(ip_stats.total_integrations, 0) as total_integrations,
             COALESCE(ip_stats.live_integrations, 0) as live_integrations,
+            COALESCE(ip_stats.active_integrations, 0) as active_integrations,
             COALESCE(pi_stats.total_issues, 0) as total_issues,
             COALESCE(pi_stats.open_issues, 0) as open_issues,
             COALESCE(pi_stats.escalated_issues, 0) as escalated_issues,
@@ -1020,7 +1021,8 @@ export async function GET() {
             SELECT
               company_id,
               COUNT(*) as total_integrations,
-              COUNT(CASE WHEN status = 'Go Live' THEN 1 END) as live_integrations
+              COUNT(CASE WHEN status = 'Go Live' THEN 1 END) as live_integrations,
+              COUNT(CASE WHEN status IN ('Development','Internal Testing','UAT in Progress') THEN 1 END) as active_integrations
             FROM integration_projects
             WHERE (is_deleted = false OR is_deleted IS NULL)
             GROUP BY company_id
@@ -1048,23 +1050,20 @@ export async function GET() {
           const liveIntegrationsNum = Number(row.live_integrations) || 0
 
           let healthScore = 100
+          const activeIntegrationsNum = Number(row.active_integrations) || 0
 
-          // Escalation rate penalty
+          // Escalation penalty: up to -40
           if (totalIssuesNum > 0) {
             const escalationRate = escalatedNum / totalIssuesNum
             healthScore -= escalationRate * 40
-          }
-
-          // Resolution rate adjustment
-          if (totalIssuesNum > 0) {
             const resolutionRate = resolvedNum / totalIssuesNum
-            healthScore += (resolutionRate - 0.5) * 20
+            healthScore += resolutionRate * 10
           }
 
-          // Live rate adjustment
+          // Integration progress: live + active count
           if (totalIntegrationsNum > 0) {
-            const liveRate = liveIntegrationsNum / totalIntegrationsNum
-            healthScore += (liveRate - 0.3) * 30
+            const progressRate = (liveIntegrationsNum + activeIntegrationsNum * 0.5) / totalIntegrationsNum
+            healthScore += progressRate * 15 - 5
           }
 
           // Clamp to 0-100

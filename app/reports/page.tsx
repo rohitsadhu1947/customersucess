@@ -163,9 +163,11 @@ export default function ReportsPage() {
     switch (selectedReport) {
       case "issues-summary":
         return (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
             <SummaryStat label="Total Issues" value={summary.totalIssues} bg="bg-blue-50" />
-            <SummaryStat label="Open Issues" value={summary.openIssues} bg="bg-amber-50" />
+            <SummaryStat label="Open / In Progress" value={summary.openIssues} bg="bg-amber-50" />
+            <SummaryStat label="Escalated" value={summary.escalatedCount} bg="bg-red-50" />
+            <SummaryStat label="Overdue" value={summary.overdueCount} bg="bg-orange-50" />
             <SummaryStat label="Resolution Rate" value={`${summary.resolutionRate}%`} bg="bg-green-50" />
             <SummaryStat label="Avg Resolution" value={`${summary.avgResolutionDays}d`} subtext="days" bg="bg-purple-50" />
           </div>

@@ -94,25 +94,26 @@ export async function GET(
         AND (is_deleted = false OR is_deleted IS NULL)
     `
 
-    // Compute health score (0-100)
+    // Compute health score (0-100) — unified algorithm
     const totalIssues = Number(issueStats.total) || 0
     const escalated = Number(issueStats.escalated_count) || 0
     const resolved = Number(issueStats.resolved_count) || 0
     const totalIntegrations = Number(integrationStats.total) || 0
     const liveIntegrations = Number(integrationStats.live_count) || 0
+    const activeIntegrations = Number(integrationStats.active_count) || 0
 
     let healthScore = 100
     if (totalIssues > 0) {
-      const resolutionRate = resolved / totalIssues
       const escalationRate = escalated / totalIssues
-      healthScore -= Math.round(escalationRate * 40)
-      healthScore += Math.round(resolutionRate * 20)
+      healthScore -= escalationRate * 40
+      const resolutionRate = resolved / totalIssues
+      healthScore += resolutionRate * 10
     }
     if (totalIntegrations > 0) {
-      const liveRate = liveIntegrations / totalIntegrations
-      healthScore = Math.round(healthScore * 0.7 + liveRate * 30)
+      const progressRate = (liveIntegrations + activeIntegrations * 0.5) / totalIntegrations
+      healthScore += progressRate * 15 - 5
     }
-    healthScore = Math.max(0, Math.min(100, healthScore))
+    healthScore = Math.max(0, Math.min(100, Math.round(healthScore)))
 
     return NextResponse.json({
       company,

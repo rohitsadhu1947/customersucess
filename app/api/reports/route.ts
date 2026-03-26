@@ -18,68 +18,55 @@ export async function GET(request: NextRequest) {
 
     switch (reportType) {
       case "issues-summary": {
-        let rows
-        if (effectiveCompanyId) {
-          rows = await sql`
-            SELECT
-              issue_category,
-              status,
-              priority,
-              COUNT(*) as count,
-              COUNT(CASE WHEN status IN ('Resolved', 'Closed', 'Completed') THEN 1 END) as resolved_count,
-              AVG(EXTRACT(EPOCH FROM (COALESCE(resolved_at, CURRENT_TIMESTAMP) - created_at)) / 86400)::numeric(10,1) as avg_resolution_days
-            FROM project_issues
-            WHERE company_id = ${effectiveCompanyId}
-              AND (is_deleted = false OR is_deleted IS NULL)
-              ${dateFrom ? sql`AND created_at >= ${dateFrom}` : sql``}
-              ${dateTo ? sql`AND created_at <= ${dateTo}::date + INTERVAL '1 day'` : sql``}
-            GROUP BY issue_category, status, priority
-            ORDER BY count DESC
-          `
-        } else {
-          rows = await sql`
-            SELECT
-              issue_category,
-              status,
-              priority,
-              COUNT(*) as count,
-              COUNT(CASE WHEN status IN ('Resolved', 'Closed', 'Completed') THEN 1 END) as resolved_count,
-              AVG(EXTRACT(EPOCH FROM (COALESCE(resolved_at, CURRENT_TIMESTAMP) - created_at)) / 86400)::numeric(10,1) as avg_resolution_days
-            FROM project_issues
-            WHERE (is_deleted = false OR is_deleted IS NULL)
-              ${dateFrom ? sql`AND created_at >= ${dateFrom}` : sql``}
-              ${dateTo ? sql`AND created_at <= ${dateTo}::date + INTERVAL '1 day'` : sql``}
-            GROUP BY issue_category, status, priority
-            ORDER BY count DESC
-          `
-        }
+        // Summary grouped by category with status breakdown and resolution metrics
+        const companyFilter = effectiveCompanyId ? sql`AND pi.company_id = ${effectiveCompanyId}` : sql``
+        const dateFilter = sql`
+          ${dateFrom ? sql`AND pi.created_at >= ${dateFrom}` : sql``}
+          ${dateTo ? sql`AND pi.created_at <= ${dateTo}::date + INTERVAL '1 day'` : sql``}
+        `
 
-        const totalIssues = rows.reduce((sum: number, r: any) => sum + Number(r.count), 0)
-        const openIssues = rows
-          .filter((r: any) => !["Resolved", "Closed", "Completed"].includes(r.status))
-          .reduce((sum: number, r: any) => sum + Number(r.count), 0)
-        const resolvedCount = rows.reduce((sum: number, r: any) => sum + Number(r.resolved_count), 0)
+        const rows = await sql`
+          SELECT
+            pi.issue_category as category,
+            COUNT(*) as total,
+            COUNT(CASE WHEN pi.status IN ('Raised', 'New', 'Open') THEN 1 END) as open,
+            COUNT(CASE WHEN pi.status = 'In Progress' THEN 1 END) as in_progress,
+            COUNT(CASE WHEN pi.status = 'Escalated' THEN 1 END) as escalated,
+            COUNT(CASE WHEN pi.status IN ('Resolved', 'Closed', 'Completed') THEN 1 END) as resolved,
+            COUNT(CASE WHEN pi.priority IN ('Critical', 'High') THEN 1 END) as high_priority,
+            COUNT(CASE WHEN pi.due_date IS NOT NULL AND pi.due_date < CURRENT_DATE
+              AND pi.status NOT IN ('Resolved', 'Closed', 'Completed') THEN 1 END) as overdue,
+            AVG(CASE WHEN pi.resolved_at IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (pi.resolved_at - pi.created_at)) / 86400
+              ELSE NULL END)::numeric(10,1) as avg_resolution_days
+          FROM project_issues pi
+          WHERE (pi.is_deleted = false OR pi.is_deleted IS NULL)
+            ${companyFilter}
+            ${dateFilter}
+          GROUP BY pi.issue_category
+          ORDER BY total DESC
+        `
+
+        const totalIssues = rows.reduce((sum: number, r: any) => sum + Number(r.total), 0)
+        const openIssues = rows.reduce((sum: number, r: any) => sum + Number(r.open) + Number(r.in_progress), 0)
+        const resolvedCount = rows.reduce((sum: number, r: any) => sum + Number(r.resolved), 0)
+        const escalatedCount = rows.reduce((sum: number, r: any) => sum + Number(r.escalated), 0)
+        const overdueCount = rows.reduce((sum: number, r: any) => sum + Number(r.overdue), 0)
         const resolutionRate = totalIssues > 0 ? Math.round((resolvedCount / totalIssues) * 1000) / 10 : 0
-        const allAvgDays = rows.filter((r: any) => r.avg_resolution_days !== null)
-        const avgResolutionDays =
-          allAvgDays.length > 0
-            ? Math.round(
-                (allAvgDays.reduce((sum: number, r: any) => sum + Number(r.avg_resolution_days), 0) / allAvgDays.length) * 10
-              ) / 10
-            : 0
+        const withAvg = rows.filter((r: any) => r.avg_resolution_days !== null)
+        const avgResolutionDays = withAvg.length > 0
+          ? Math.round((withAvg.reduce((sum: number, r: any) => sum + Number(r.avg_resolution_days), 0) / withAvg.length) * 10) / 10
+          : 0
 
-        const summary = { totalIssues, openIssues, resolutionRate, avgResolutionDays }
+        const summary = { totalIssues, openIssues, resolutionRate, avgResolutionDays, escalatedCount, overdueCount }
 
-        // Build stacked bar data grouped by category
-        const categoryMap: Record<string, Record<string, number>> = {}
-        for (const row of rows) {
-          const cat = row.issue_category || "Unknown"
-          if (!categoryMap[cat]) categoryMap[cat] = {}
-          categoryMap[cat][row.status] = (categoryMap[cat][row.status] || 0) + Number(row.count)
-        }
-        const chartData = Object.entries(categoryMap).map(([category, statuses]) => ({
-          category,
-          ...statuses,
+        // Stacked bar chart by category
+        const chartData = rows.map((r: any) => ({
+          category: r.category || "Unknown",
+          Open: Number(r.open),
+          "In Progress": Number(r.in_progress),
+          Escalated: Number(r.escalated),
+          Resolved: Number(r.resolved),
         }))
 
         return NextResponse.json({ type: reportType, data: rows, summary, chartData })
@@ -92,7 +79,6 @@ export async function GET(request: NextRequest) {
         const rows = await sql`
           SELECT
             c.name as company_name,
-            c.id as company_id,
             COUNT(ps.id) as total_issues,
             COUNT(CASE WHEN ps.status IN ('Raised', 'New', 'Open') THEN 1 END) as open_issues,
             COUNT(CASE WHEN ps.status = 'Escalated' THEN 1 END) as escalated_issues,
@@ -131,64 +117,101 @@ export async function GET(request: NextRequest) {
       }
 
       case "integrations-status": {
+        // Pivot query: one row per insurer with count per status
         let rows
         if (effectiveCompanyId) {
           rows = await sql`
             SELECT
-              ip.status,
-              COUNT(*) as count,
-              i.name as insurer_name
+              i.name as insurer_name,
+              i.short_name as insurer_short_name,
+              COUNT(*) as total,
+              COUNT(CASE WHEN ip.status = 'Not Started' THEN 1 END) as not_started,
+              COUNT(CASE WHEN ip.status = 'API Kit Requested' THEN 1 END) as api_kit_requested,
+              COUNT(CASE WHEN ip.status = 'Credentials Pending' THEN 1 END) as credentials_pending,
+              COUNT(CASE WHEN ip.status = 'Development' THEN 1 END) as development,
+              COUNT(CASE WHEN ip.status = 'Internal Testing' THEN 1 END) as internal_testing,
+              COUNT(CASE WHEN ip.status = 'UAT in Progress' THEN 1 END) as uat_in_progress,
+              COUNT(CASE WHEN ip.status = 'Production Ready' THEN 1 END) as production_ready,
+              COUNT(CASE WHEN ip.status = 'Go Live' THEN 1 END) as go_live,
+              COUNT(CASE WHEN ip.status = 'On Hold' THEN 1 END) as on_hold
             FROM integration_projects ip
             LEFT JOIN insurers i ON ip.insurer_id = i.id
             WHERE ip.company_id = ${effectiveCompanyId}
               AND (ip.is_deleted = false OR ip.is_deleted IS NULL)
-            GROUP BY ip.status, i.name
-            ORDER BY count DESC
+            GROUP BY i.id, i.name, i.short_name
+            ORDER BY i.name
           `
         } else {
           rows = await sql`
             SELECT
-              ip.status,
-              COUNT(*) as count,
-              i.name as insurer_name
+              i.name as insurer_name,
+              i.short_name as insurer_short_name,
+              COUNT(*) as total,
+              COUNT(CASE WHEN ip.status = 'Not Started' THEN 1 END) as not_started,
+              COUNT(CASE WHEN ip.status = 'API Kit Requested' THEN 1 END) as api_kit_requested,
+              COUNT(CASE WHEN ip.status = 'Credentials Pending' THEN 1 END) as credentials_pending,
+              COUNT(CASE WHEN ip.status = 'Development' THEN 1 END) as development,
+              COUNT(CASE WHEN ip.status = 'Internal Testing' THEN 1 END) as internal_testing,
+              COUNT(CASE WHEN ip.status = 'UAT in Progress' THEN 1 END) as uat_in_progress,
+              COUNT(CASE WHEN ip.status = 'Production Ready' THEN 1 END) as production_ready,
+              COUNT(CASE WHEN ip.status = 'Go Live' THEN 1 END) as go_live,
+              COUNT(CASE WHEN ip.status = 'On Hold' THEN 1 END) as on_hold
             FROM integration_projects ip
             LEFT JOIN insurers i ON ip.insurer_id = i.id
             WHERE (ip.is_deleted = false OR ip.is_deleted IS NULL)
-            GROUP BY ip.status, i.name
-            ORDER BY count DESC
+            GROUP BY i.id, i.name, i.short_name
+            ORDER BY i.name
           `
         }
 
-        const totalIntegrations = rows.reduce((sum: number, r: any) => sum + Number(r.count), 0)
-        const goLiveCount = rows
-          .filter((r: any) => r.status === "Go Live")
-          .reduce((sum: number, r: any) => sum + Number(r.count), 0)
-        const activeCount = rows
-          .filter((r: any) => !["Go Live", "Not Started"].includes(r.status))
-          .reduce((sum: number, r: any) => sum + Number(r.count), 0)
+        const totalIntegrations = rows.reduce((sum: number, r: any) => sum + Number(r.total), 0)
+        const goLiveCount = rows.reduce((sum: number, r: any) => sum + Number(r.go_live), 0)
+        const activeCount = totalIntegrations - goLiveCount - rows.reduce((sum: number, r: any) => sum + Number(r.not_started), 0)
 
         const summary = { totalIntegrations, goLiveCount, activeCount }
 
-        // Build pie chart segments grouped by status
-        const statusMap: Record<string, number> = {}
-        for (const row of rows) {
-          const s = row.status || "Unknown"
-          statusMap[s] = (statusMap[s] || 0) + Number(row.count)
-        }
+        // Pie chart by status totals
         const STATUS_COLORS: Record<string, string> = {
           "Not Started": "#94A3B8",
+          "API Kit Requested": "#60A5FA",
+          "Credentials Pending": "#FBBF24",
           "Development": "#3B82F6",
           "Internal Testing": "#8B5CF6",
           "UAT in Progress": "#F59E0B",
+          "Production Ready": "#14B8A6",
           "Go Live": "#10B981",
+          "On Hold": "#EF4444",
         }
-        const chartData = Object.entries(statusMap).map(([name, value]) => ({
+        const statusTotals: Record<string, number> = {}
+        for (const row of rows) {
+          for (const [key, color] of Object.entries(STATUS_COLORS)) {
+            const col = key.toLowerCase().replace(/ /g, "_")
+            const val = Number((row as any)[col] || 0)
+            if (val > 0) statusTotals[key] = (statusTotals[key] || 0) + val
+          }
+        }
+        const chartData = Object.entries(statusTotals).map(([name, value]) => ({
           name,
           value,
           fill: STATUS_COLORS[name] || "#6B7280",
         }))
 
-        return NextResponse.json({ type: reportType, data: rows, summary, chartData })
+        // Return clean matrix data (remove insurer_short_name from display)
+        const data = rows.map((r: any) => ({
+          insurer: r.insurer_short_name || r.insurer_name || "Unknown",
+          total: Number(r.total),
+          not_started: Number(r.not_started),
+          api_kit_requested: Number(r.api_kit_requested),
+          credentials_pending: Number(r.credentials_pending),
+          development: Number(r.development),
+          internal_testing: Number(r.internal_testing),
+          uat_in_progress: Number(r.uat_in_progress),
+          production_ready: Number(r.production_ready),
+          go_live: Number(r.go_live),
+          on_hold: Number(r.on_hold),
+        }))
+
+        return NextResponse.json({ type: reportType, data, summary, chartData })
       }
 
       case "resolution-time": {
@@ -330,7 +353,7 @@ export async function GET(request: NextRequest) {
 
         const rows = await sql`
           SELECT
-            c.name as company_name, c.id as company_id,
+            c.name as company_name,
             COUNT(DISTINCT ip.id) as total_integrations,
             COUNT(DISTINCT ip.id) FILTER (WHERE ip.status = 'Go Live') as live_integrations,
             COUNT(DISTINCT pi2.id) as total_issues,
