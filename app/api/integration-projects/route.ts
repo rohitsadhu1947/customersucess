@@ -407,17 +407,28 @@ export async function POST(request: NextRequest) {
     if (!validation.success) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
+    const toNull = (val: any) => (val === "" || val === undefined ? null : val)
     const {
       company_id, product_id, sub_product_id, insurer_id,
-      status, priority, api_kit_received, api_kit_received_date,
-      creds_verified, creds_verification_date, dev_required,
-      dev_start_date, dev_end_date, dev_estimated_hours,
-      internal_testing_start_date, internal_testing_end_date,
-      insurer_uat_creds_received, insurer_uat_start_date, insurer_uat_end_date,
-      prod_creds_received, prod_cred_receipt_date,
-      go_live_date, go_live_planned_date,
+      status, priority, api_kit_received,
+      creds_verified, dev_required,
+      insurer_uat_creds_received,
+      prod_creds_received,
       current_blockers, technical_notes, business_notes,
     } = validation.data
+
+    const api_kit_received_date = toNull(validation.data.api_kit_received_date)
+    const creds_verification_date = toNull(validation.data.creds_verification_date)
+    const dev_start_date = toNull(validation.data.dev_start_date)
+    const dev_end_date = toNull(validation.data.dev_end_date)
+    const dev_estimated_hours = toNull(validation.data.dev_estimated_hours)
+    const internal_testing_start_date = toNull(validation.data.internal_testing_start_date)
+    const internal_testing_end_date = toNull(validation.data.internal_testing_end_date)
+    const insurer_uat_start_date = toNull(validation.data.insurer_uat_start_date)
+    const insurer_uat_end_date = toNull(validation.data.insurer_uat_end_date)
+    const prod_cred_receipt_date = toNull(validation.data.prod_cred_receipt_date)
+    const go_live_date = toNull(validation.data.go_live_date)
+    const go_live_planned_date = toNull(validation.data.go_live_planned_date)
 
     const [newProject] = await sql`
       INSERT INTO integration_projects (
@@ -469,17 +480,30 @@ export async function PUT(request: NextRequest) {
     if (!validation.success) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
+    // Convert empty strings to null for date fields so COALESCE works correctly
+    const emptyToNull = (val: any) => (val === "" || val === undefined ? null : val)
+
     const {
       id, company_id, product_id, sub_product_id, insurer_id,
-      status, priority, api_kit_received, api_kit_received_date,
-      creds_verified, creds_verification_date, dev_required,
-      dev_start_date, dev_end_date, dev_estimated_hours,
-      internal_testing_start_date, internal_testing_end_date,
-      insurer_uat_creds_received, insurer_uat_start_date, insurer_uat_end_date,
-      prod_creds_received, prod_cred_receipt_date,
-      go_live_date, go_live_planned_date,
+      status, priority, api_kit_received,
+      creds_verified, dev_required,
+      insurer_uat_creds_received,
+      prod_creds_received,
       current_blockers, technical_notes, business_notes,
     } = validation.data
+
+    const api_kit_received_date = emptyToNull(validation.data.api_kit_received_date)
+    const creds_verification_date = emptyToNull(validation.data.creds_verification_date)
+    const dev_start_date = emptyToNull(validation.data.dev_start_date)
+    const dev_end_date = emptyToNull(validation.data.dev_end_date)
+    const dev_estimated_hours = emptyToNull(validation.data.dev_estimated_hours)
+    const internal_testing_start_date = emptyToNull(validation.data.internal_testing_start_date)
+    const internal_testing_end_date = emptyToNull(validation.data.internal_testing_end_date)
+    const insurer_uat_start_date = emptyToNull(validation.data.insurer_uat_start_date)
+    const insurer_uat_end_date = emptyToNull(validation.data.insurer_uat_end_date)
+    const prod_cred_receipt_date = emptyToNull(validation.data.prod_cred_receipt_date)
+    const go_live_date = emptyToNull(validation.data.go_live_date)
+    const go_live_planned_date = emptyToNull(validation.data.go_live_planned_date)
 
     // Role-based restrictions for customers
     if (user.role === "Customer") {

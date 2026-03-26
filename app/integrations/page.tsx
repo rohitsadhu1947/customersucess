@@ -202,12 +202,35 @@ export default function IntegrationsPage() {
     setFilteredProjects(filtered)
   }
 
+  // Helper to format ISO date strings to YYYY-MM-DD for date inputs
+  const toDateInput = (val: string | null | undefined) => {
+    if (!val) return ""
+    try {
+      return new Date(val).toISOString().split("T")[0]
+    } catch {
+      return val?.split?.("T")?.[0] || ""
+    }
+  }
+
   const openModal = (project: IntegrationProject | null = null) => {
     setEditingProject(project)
     setShowModal(true)
 
     if (project) {
-      setFormData({ ...project })
+      setFormData({
+        ...project,
+        api_kit_received_date: toDateInput(project.api_kit_received_date),
+        creds_verification_date: toDateInput(project.creds_verification_date),
+        dev_start_date: toDateInput(project.dev_start_date),
+        dev_end_date: toDateInput(project.dev_end_date),
+        internal_testing_start_date: toDateInput(project.internal_testing_start_date),
+        internal_testing_end_date: toDateInput(project.internal_testing_end_date),
+        insurer_uat_start_date: toDateInput(project.insurer_uat_start_date),
+        insurer_uat_end_date: toDateInput(project.insurer_uat_end_date),
+        prod_cred_receipt_date: toDateInput(project.prod_cred_receipt_date),
+        go_live_date: toDateInput(project.go_live_date),
+        go_live_planned_date: toDateInput(project.go_live_planned_date),
+      })
     } else {
       setFormData({
         company_id: user?.role === "Customer" ? user.companyId : "",
