@@ -23,6 +23,7 @@ import {
   Heart,
   Ticket,
   BarChart3,
+  Layers,
 } from "lucide-react"
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -136,6 +137,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: "Dashboard", href: "/", icon: Home, permission: "dashboard" },
     { name: "Integrations", href: "/integrations", icon: Package, permission: "integrations" },
     { name: "Pipeline", href: "/pipeline", icon: GitBranch, permission: "integrations" },
+    { name: "Insurer Plans", href: "/insurer-plans", icon: Layers, permission: "integrations" },
     { name: "Issues", href: "/issues", icon: MessageSquare, permission: "issues" },
     { name: "Tickets", href: "/tickets", icon: Ticket, permission: "tickets" },
     { name: "Ticket Dashboard", href: "/ticket-dashboard", icon: BarChart3, permission: "tickets" },

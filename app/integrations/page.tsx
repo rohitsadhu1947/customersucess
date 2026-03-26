@@ -369,7 +369,8 @@ export default function IntegrationsPage() {
         <TableHeader>
           <TableRow className="bg-gray-50">
             <TableHead className="font-semibold">Project</TableHead>
-            <TableHead className="font-semibold">Product → Sub-Product</TableHead>
+            <TableHead className="font-semibold">Product</TableHead>
+            <TableHead className="font-semibold">Plan Name</TableHead>
             <TableHead className="font-semibold">Insurer</TableHead>
             <TableHead className="font-semibold">Status</TableHead>
             <TableHead className="font-semibold">Progress</TableHead>
@@ -390,12 +391,12 @@ export default function IntegrationsPage() {
                 </div>
               </TableCell>
               <TableCell>
-                <div>
-                  <div className="font-medium text-sm">{project.product_display_name || project.product_name}</div>
-                  <div className="text-xs text-gray-600">
-                    {project.sub_product_display_name || project.sub_product_name}
-                  </div>
-                </div>
+                <span className="font-medium text-sm">{project.product_display_name || project.product_name}</span>
+              </TableCell>
+              <TableCell>
+                <span className="font-medium text-sm text-blue-700">
+                  {project.sub_product_display_name || project.sub_product_name || "—"}
+                </span>
               </TableCell>
               <TableCell>
                 <span className="text-sm font-medium">{project.insurer_short_name || project.insurer_name}</span>
@@ -476,12 +477,16 @@ export default function IntegrationsPage() {
           <div className="flex justify-between items-start mb-4">
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                {project.sub_product_display_name || project.sub_product_name}
+                {project.company_name} × {project.insurer_short_name || project.insurer_name}
               </h3>
               <p className="text-sm text-gray-600">
-                {project.company_name} × {project.insurer_short_name || project.insurer_name}
+                {project.product_display_name || project.product_name}
               </p>
-              <p className="text-xs text-gray-500 mt-1">{project.product_display_name || project.product_name}</p>
+              {(project.sub_product_display_name || project.sub_product_name) && (
+                <p className="text-sm font-medium text-blue-700 mt-1">
+                  Plan: {project.sub_product_display_name || project.sub_product_name}
+                </p>
+              )}
             </div>
             <div className="flex space-x-1 ml-4">
               <button onClick={() => router.push(`/integrations/${project.id}`)} className="text-gray-600 hover:text-gray-900">

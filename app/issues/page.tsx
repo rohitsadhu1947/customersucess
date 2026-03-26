@@ -667,6 +667,7 @@ export default function ProjectStatusPage() {
                         <TableHead>Pending With</TableHead>
                         <TableHead>Due Date</TableHead>
                         <TableHead>Raised Date</TableHead>
+                        <TableHead>Resolution Date</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -699,6 +700,15 @@ export default function ProjectStatusPage() {
                             </TableCell>
                             <TableCell>
                               {status.raised_date ? new Date(status.raised_date).toLocaleDateString() : "N/A"}
+                            </TableCell>
+                            <TableCell>
+                              {status.resolved_at ? (
+                                <span className="text-green-700 font-medium">
+                                  {new Date(status.resolved_at).toLocaleDateString()}
+                                </span>
+                              ) : (
+                                "—"
+                              )}
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-2">
@@ -796,6 +806,11 @@ export default function ProjectStatusPage() {
                             <span>
                               Raised {status.raised_date ? new Date(status.raised_date).toLocaleDateString() : "N/A"}
                             </span>
+                            {status.resolved_at && (
+                              <span className="text-green-600 font-medium">
+                                Resolved {new Date(status.resolved_at).toLocaleDateString()}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
