@@ -112,12 +112,12 @@ export const updateCredentialSchema = createCredentialSchema.extend({
 export const TICKET_CATEGORIES = [
   "Production Issue", "Feature Request", "Bug Report", "Question",
   "Access Issue", "Configuration", "Data Issue", "Performance",
-  "Billing", "Other"
+  "Billing", "Pending with Insurer", "Other"
 ] as const
 
 export const TICKET_STATUSES = [
   "New", "Open", "In Progress", "Waiting on Customer",
-  "Waiting on Internal", "Escalated", "Resolved", "Closed"
+  "Waiting on Internal", "Pending with Insurer", "Escalated", "Resolved", "Closed"
 ] as const
 
 export const TICKET_PRIORITIES = ["Critical", "High", "Medium", "Low"] as const

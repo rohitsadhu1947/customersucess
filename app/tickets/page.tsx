@@ -86,7 +86,7 @@ interface UserOption {
 
 // ---- Constants ----
 
-const KANBAN_STATUSES = ["New", "Open", "In Progress", "Waiting on Customer", "Waiting on Internal", "Escalated"]
+const KANBAN_STATUSES = ["New", "Open", "In Progress", "Waiting on Customer", "Waiting on Internal", "Pending with Insurer", "Escalated"]
 
 const STATUS_COLORS: Record<string, string> = {
   New: "bg-gray-100 text-gray-800",
@@ -94,6 +94,7 @@ const STATUS_COLORS: Record<string, string> = {
   "In Progress": "bg-indigo-100 text-indigo-800",
   "Waiting on Customer": "bg-amber-100 text-amber-800",
   "Waiting on Internal": "bg-purple-100 text-purple-800",
+  "Pending with Insurer": "bg-orange-100 text-orange-800",
   Escalated: "bg-red-100 text-red-800",
   Resolved: "bg-green-100 text-green-800",
   Closed: "bg-gray-100 text-gray-800",

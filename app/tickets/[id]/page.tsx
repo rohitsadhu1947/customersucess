@@ -26,7 +26,11 @@ import {
   X,
   FileText,
   Download,
+  Mail,
+  MailOpen,
+  ChevronDown,
 } from "lucide-react"
+import { Input } from "@/components/ui/input"
 import { ATTACHMENT_MAX_FILE_SIZE, ATTACHMENT_ALLOWED_EXTENSIONS, formatFileSize } from "@/lib/validations"
 
 interface Ticket {
@@ -61,12 +65,33 @@ interface Ticket {
 interface TicketResponse {
   id: string
   ticket_id: string
-  response_type: "reply" | "internal_note" | "system"
+  response_type: "reply" | "internal_note" | "system" | "email_outbound" | "email_inbound"
   body: string
   created_by_id: string
   created_by_name: string
   created_by_role: string
+  email_message_id: string | null
   created_at: string
+}
+
+interface EmailTemplate {
+  id: string
+  name: string
+  category: string
+  subject_template: string
+  body_template: string
+  available_variables: { name: string; description: string }[]
+}
+
+interface InsurerContact {
+  id: string
+  insurer_id: string
+  contact_name: string
+  contact_email: string
+  contact_role: string
+  is_primary: boolean
+  insurer_name: string
+  insurer_short_name: string
 }
 
 interface HistoryEntry {
@@ -106,6 +131,7 @@ const TICKET_STATUSES = [
   "In Progress",
   "Waiting on Customer",
   "Waiting on Internal",
+  "Pending with Insurer",
   "Escalated",
   "Resolved",
   "Closed",
@@ -133,6 +159,20 @@ export default function TicketDetailPage() {
   const [copied, setCopied] = useState(false)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [replyFiles, setReplyFiles] = useState<File[]>([])
+
+  // Email compose state
+  const [showEmailCompose, setShowEmailCompose] = useState(false)
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [insurerContacts, setInsurerContacts] = useState<InsurerContact[]>([])
+  const [emailForm, setEmailForm] = useState({
+    to_email: "",
+    to_name: "",
+    cc_emails: "",
+    subject: "",
+    body_text: "",
+    template_id: "",
+  })
+  const [sendingEmail, setSendingEmail] = useState(false)
 
   const isEnsuredit = ["Admin", "Ensuredit", "Ensuredit Client Lead"].includes(user?.role || "")
   const isCustomerViewOnly = user?.role === "Customer View Only"
@@ -197,6 +237,20 @@ export default function TicketDetailPage() {
     }
   }, [id])
 
+  const fetchEmailTemplates = useCallback(async () => {
+    try {
+      const res = await fetch("/api/email-templates")
+      if (res.ok) setEmailTemplates(await res.json())
+    } catch { /* templates may not exist yet */ }
+  }, [])
+
+  const fetchInsurerContacts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/insurer-contacts")
+      if (res.ok) setInsurerContacts(await res.json())
+    } catch { /* contacts may not exist yet */ }
+  }, [])
+
   useEffect(() => {
     if (user && id) {
       fetchTicket()
@@ -205,9 +259,11 @@ export default function TicketDetailPage() {
       fetchAttachments()
       if (isEnsuredit) {
         fetchEnsureditUsers()
+        fetchEmailTemplates()
+        fetchInsurerContacts()
       }
     }
-  }, [user, id, fetchTicket, fetchResponses, fetchHistory, fetchAttachments, isEnsuredit, fetchEnsureditUsers])
+  }, [user, id, fetchTicket, fetchResponses, fetchHistory, fetchAttachments, isEnsuredit, fetchEnsureditUsers, fetchEmailTemplates, fetchInsurerContacts])
 
   useEffect(() => {
     if (conversationEndRef.current && activeTab === "conversation") {
@@ -291,6 +347,100 @@ export default function TicketDetailPage() {
     }
   }
 
+  const handleOpenEmailCompose = () => {
+    setEmailForm({
+      to_email: "",
+      to_name: "",
+      cc_emails: "",
+      subject: ticket ? `[${ticket.ticket_number}] ` : "",
+      body_text: "",
+      template_id: "",
+    })
+    setShowEmailCompose(true)
+  }
+
+  const handleSelectTemplate = (templateId: string) => {
+    const template = emailTemplates.find((t) => t.id === templateId)
+    if (!template || !ticket) return
+
+    // Simple variable substitution
+    const vars: Record<string, string> = {
+      ticket_number: ticket.ticket_number,
+      company_name: ticket.company_name || "",
+      ticket_category: ticket.category || "",
+      ticket_priority: ticket.priority || "",
+      sender_name: user?.name || "",
+      insurer_contact_name: emailForm.to_name || "Team",
+      custom_message: "",
+    }
+
+    let subject = template.subject_template
+    let body = template.body_template
+    for (const [key, value] of Object.entries(vars)) {
+      subject = subject.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value)
+      body = body.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value)
+    }
+
+    setEmailForm((prev) => ({
+      ...prev,
+      template_id: templateId,
+      subject,
+      body_text: body,
+    }))
+  }
+
+  const handleSelectContact = (contactId: string) => {
+    const contact = insurerContacts.find((c) => c.id === contactId)
+    if (contact) {
+      setEmailForm((prev) => ({
+        ...prev,
+        to_email: contact.contact_email,
+        to_name: contact.contact_name || "",
+      }))
+    }
+  }
+
+  const handleSendEmail = async () => {
+    if (!emailForm.to_email || !emailForm.subject || !emailForm.body_text) {
+      alert("Please fill in recipient, subject, and message body.")
+      return
+    }
+    setSendingEmail(true)
+    try {
+      const ccList = emailForm.cc_emails
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean)
+        .map((email) => ({ email }))
+
+      const res = await fetch(`/api/tickets/${id}/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to_addresses: [{ email: emailForm.to_email, name: emailForm.to_name }],
+          cc_addresses: ccList,
+          subject: emailForm.subject,
+          body_text: emailForm.body_text,
+          template_id: emailForm.template_id || undefined,
+        }),
+      })
+
+      if (res.ok) {
+        setShowEmailCompose(false)
+        fetchResponses()
+        fetchTicket()
+      } else {
+        const err = await res.json()
+        alert(err.error || "Failed to send email")
+      }
+    } catch (error) {
+      console.error("Email send error:", error)
+      alert("Failed to send email")
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       New: "bg-gray-100 text-gray-800",
@@ -298,6 +448,7 @@ export default function TicketDetailPage() {
       "In Progress": "bg-indigo-100 text-indigo-800",
       "Waiting on Customer": "bg-amber-100 text-amber-800",
       "Waiting on Internal": "bg-purple-100 text-purple-800",
+      "Pending with Insurer": "bg-orange-100 text-orange-800",
       Escalated: "bg-red-100 text-red-800",
       Resolved: "bg-green-100 text-green-800",
       Closed: "bg-gray-100 text-gray-800",
@@ -688,6 +839,68 @@ export default function TicketDetailPage() {
                             )
                           }
 
+                          // email outbound
+                          if (r.response_type === "email_outbound") {
+                            return (
+                              <div
+                                key={r.id}
+                                className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 border-l-4 border-l-indigo-500"
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className="bg-indigo-600 w-7 h-7 rounded-full flex items-center justify-center">
+                                      <Mail className="h-3.5 w-3.5 text-white" />
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {r.created_by_name}
+                                    </span>
+                                    <span className="flex items-center text-xs text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">
+                                      <Mail className="h-3 w-3 mr-1" />
+                                      Email Sent
+                                    </span>
+                                  </div>
+                                  <span className="text-xs text-gray-500">
+                                    {formatDate(r.created_at)}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                  {r.body}
+                                </p>
+                              </div>
+                            )
+                          }
+
+                          // email inbound
+                          if (r.response_type === "email_inbound") {
+                            return (
+                              <div
+                                key={r.id}
+                                className="bg-teal-50 border border-teal-200 rounded-lg p-4 border-l-4 border-l-teal-500"
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className="bg-teal-600 w-7 h-7 rounded-full flex items-center justify-center">
+                                      <MailOpen className="h-3.5 w-3.5 text-white" />
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {r.created_by_name}
+                                    </span>
+                                    <span className="flex items-center text-xs text-teal-700 bg-teal-100 px-2 py-0.5 rounded">
+                                      <MailOpen className="h-3 w-3 mr-1" />
+                                      Email Received
+                                    </span>
+                                  </div>
+                                  <span className="text-xs text-gray-500">
+                                    {formatDate(r.created_at)}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                  {r.body}
+                                </p>
+                              </div>
+                            )
+                          }
+
                           // reply type
                           const isEnsureditReply = isEnsureditRole(r.created_by_role)
                           const borderColor = isEnsureditReply
@@ -825,6 +1038,13 @@ export default function TicketDetailPage() {
                                   >
                                     <Lock className="h-3.5 w-3.5 mr-1.5" />
                                     Internal Note
+                                  </button>
+                                  <button
+                                    onClick={handleOpenEmailCompose}
+                                    className="flex items-center text-sm px-3 py-1.5 rounded-lg transition-colors bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-medium"
+                                  >
+                                    <Mail className="h-3.5 w-3.5 mr-1.5" />
+                                    Email Insurer
                                   </button>
                                 </div>
                               )}
@@ -1109,6 +1329,172 @@ export default function TicketDetailPage() {
           </div>
         </div>
       </div>
+      {/* Email Compose Modal */}
+      {showEmailCompose && ticket && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <Mail className="h-5 w-5 text-indigo-600" />
+                <h2 className="text-lg font-semibold">Send Email to Insurer</h2>
+              </div>
+              <button onClick={() => setShowEmailCompose(false)}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Template Selector */}
+              {emailTemplates.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Use Template
+                  </label>
+                  <select
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                    value={emailForm.template_id}
+                    onChange={(e) => handleSelectTemplate(e.target.value)}
+                  >
+                    <option value="">-- Select a template --</option>
+                    {emailTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        [{t.category}] {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Recipient - Contact selector or free-form */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  To *
+                </label>
+                <div className="flex gap-2">
+                  {insurerContacts.length > 0 && (
+                    <select
+                      className="border rounded-md px-3 py-2 text-sm flex-shrink-0"
+                      onChange={(e) => handleSelectContact(e.target.value)}
+                      defaultValue=""
+                    >
+                      <option value="" disabled>
+                        Pick contact...
+                      </option>
+                      {insurerContacts.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.contact_name || c.contact_email}{" "}
+                          {c.contact_role ? `(${c.contact_role})` : ""} —{" "}
+                          {c.insurer_short_name || c.insurer_name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <Input
+                    type="email"
+                    placeholder="recipient@insurer.com"
+                    value={emailForm.to_email}
+                    onChange={(e) =>
+                      setEmailForm({ ...emailForm, to_email: e.target.value })
+                    }
+                    className="flex-1"
+                  />
+                </div>
+                <Input
+                  type="text"
+                  placeholder="Contact name (optional)"
+                  value={emailForm.to_name}
+                  onChange={(e) =>
+                    setEmailForm({ ...emailForm, to_name: e.target.value })
+                  }
+                  className="mt-2"
+                />
+              </div>
+
+              {/* CC */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  CC (comma-separated)
+                </label>
+                <Input
+                  type="text"
+                  placeholder="cc1@example.com, cc2@example.com"
+                  value={emailForm.cc_emails}
+                  onChange={(e) =>
+                    setEmailForm({ ...emailForm, cc_emails: e.target.value })
+                  }
+                />
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Subject *
+                </label>
+                <Input
+                  type="text"
+                  value={emailForm.subject}
+                  onChange={(e) =>
+                    setEmailForm({ ...emailForm, subject: e.target.value })
+                  }
+                  placeholder={`[${ticket.ticket_number}] Subject`}
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Message *
+                </label>
+                <Textarea
+                  rows={10}
+                  value={emailForm.body_text}
+                  onChange={(e) =>
+                    setEmailForm({ ...emailForm, body_text: e.target.value })
+                  }
+                  placeholder="Type your email message..."
+                />
+              </div>
+
+              {/* Context Info */}
+              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-500">
+                <p>
+                  Sending as <strong>{user?.name}</strong> from {user?.email || "your @ensuredit.com address"}
+                </p>
+                <p className="mt-1">
+                  Ticket: <strong>{ticket.ticket_number}</strong> | Company:{" "}
+                  <strong>{ticket.company_name}</strong>
+                </p>
+                <p className="mt-1">
+                  Replies will be automatically tracked in this ticket.
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-2 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowEmailCompose(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSendEmail}
+                  disabled={
+                    sendingEmail ||
+                    !emailForm.to_email ||
+                    !emailForm.subject ||
+                    !emailForm.body_text
+                  }
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  {sendingEmail ? "Sending..." : "Send Email"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   )
 }
